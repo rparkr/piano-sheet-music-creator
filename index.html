@@ -11,39 +11,39 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+
     <style>
         body {
             font-family: 'Quicksand', sans-serif;
             -webkit-tap-highlight-color: transparent;
         }
-    
+
         /* Custom sleek scrollbar */
         ::-webkit-scrollbar {
             width: 6px;
             height: 6px;
         }
-    
+
         ::-webkit-scrollbar-track {
             background: #f1f5f9;
             border-radius: 4px;
         }
-    
+
         ::-webkit-scrollbar-thumb {
             background: #cbd5e1;
             border-radius: 4px;
         }
-    
+
         ::-webkit-scrollbar-thumb:hover {
             background: #94a3b8;
         }
-    
+
         /* Prevent text selection when drawing or clicking staff */
         .no-select {
             user-select: none;
             -webkit-user-select: none;
         }
-    
+
         /* Responsive container with scroll support on small screens */
         .system-scroll-container {
             display: flex;
@@ -51,46 +51,46 @@
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
         }
-    
+
         @keyframes modalFadeIn {
             from {
                 opacity: 0;
                 transform: scale(0.95);
             }
-    
+
             to {
                 opacity: 1;
                 transform: scale(1);
             }
         }
-    
+
         .animate-modal {
             animation: modalFadeIn 0.15s ease-out forwards;
         }
-    
+
         /* Bold prominence for custom ledger lines */
         .ledger-line {
             stroke: #000000 !important;
             stroke-width: 2.2px !important;
         }
-    
+
         @media print {
             @page {
                 size: portrait;
                 margin: 1.2cm 1cm;
             }
-    
+
             body {
                 background: white !important;
                 color: black !important;
                 padding: 0 !important;
                 margin: 0 !important;
             }
-    
+
             .no-print {
                 display: none !important;
             }
-    
+
             /* Clean transparent layout to eliminate shadow ink bleeding */
             .print-layout {
                 display: block !important;
@@ -102,7 +102,7 @@
                 background: transparent !important;
                 background-color: transparent !important;
             }
-    
+
             .print-system-row {
                 display: flex !important;
                 flex-direction: row !important;
@@ -113,17 +113,17 @@
                 margin-bottom: 2.2rem !important;
                 background: transparent !important;
             }
-    
+
             .staff-line {
                 stroke: #000000 !important;
                 stroke-width: 1.5px !important;
             }
-    
+
             .ledger-line {
                 stroke: #000000 !important;
                 stroke-width: 2.2px !important;
             }
-    
+
             .bar-line {
                 stroke: #000000 !important;
                 stroke-width: 3px !important;
@@ -192,6 +192,7 @@
 
         const DEMO_SONGS = {
             maryLamb: {
+                id: "mary-lamb-demo",
                 title: "Mary Had a Little Lamb",
                 composer: "Traditional",
                 tempo: 100,
@@ -223,6 +224,7 @@
                 ]
             },
             odeJoy: {
+                id: "ode-joy-demo",
                 title: "Ode to Joy",
                 composer: "L. van Beethoven",
                 tempo: 110,
@@ -254,8 +256,9 @@
         };
 
         function App() {
+            const [songId, setSongId] = useState("");
             const [songTitle, setSongTitle] = useState("Mary Had a Little Lamb");
-            const [composer, setComposer] = useState("Me");
+            const [composer, setComposer] = useState("Traditional");
             const [measuresCount, setMeasuresCount] = useState(4);
             const [notes, setNotes] = useState(DEMO_SONGS.maryLamb.notes);
 
@@ -269,14 +272,20 @@
             const [selectedNoteId, setSelectedNoteId] = useState(null);
             const [isEditModalOpen, setIsEditModalOpen] = useState(false);
             const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+            const [isLoadModalOpen, setIsLoadModalOpen] = useState(false);
 
             const [isPlaying, setIsPlaying] = useState(false);
             const [currentBeat, setCurrentBeat] = useState(-1);
+
+            // Toasts & Storage
+            const [savedSongs, setSavedSongs] = useState([]);
+            const [toast, setToast] = useState(null);
 
             const playbackIntervalRef = useRef(null);
             const audioCtxRef = useRef(null);
             const touchTimerRef = useRef(null);
             const isLongPressTriggered = useRef(false);
+            const fileInputRef = useRef(null);
 
             const [hoverState, setHoverState] = useState({
                 measureIndex: null,
@@ -285,6 +294,73 @@
                 clef: null,
                 active: false
             });
+
+            useEffect(() => {
+                // Initialize custom icons
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+
+                // Check for saved songs library
+                const loadedLibrary = localStorage.getItem('colorful_sheet_music_saved_songs');
+                if (loadedLibrary) {
+                    try {
+                        setSavedSongs(JSON.parse(loadedLibrary));
+                    } catch (e) {
+                        console.error("Error reading library", e);
+                    }
+                }
+
+                // Check for active draft session
+                const activeDraft = localStorage.getItem('colorful_sheet_music_active_song');
+                if (activeDraft) {
+                    try {
+                        const parsed = JSON.parse(activeDraft);
+                        setSongId(parsed.id || "");
+                        setSongTitle(parsed.title || "Untitled");
+                        setComposer(parsed.composer || "Composer");
+                        setTempo(parsed.tempo || 100);
+                        setTimeSigBeats(parsed.beats || 4);
+                        setTimeSigValue(parsed.beatValue || 4);
+                        setNotes(parsed.notes || []);
+                        setMeasuresCount(parsed.measuresCount || 4);
+                    } catch (e) {
+                        console.error("Could not load active draft, defaulting...", e);
+                        loadDemoSong('maryLamb');
+                    }
+                } else {
+                    loadDemoSong('maryLamb');
+                }
+            }, []);
+
+            // Ensure Lucide icons are converted after dynamic icon markup changes
+            useEffect(() => {
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }, [isPlaying, isEditModalOpen, isClearConfirmOpen, isLoadModalOpen, savedSongs.length, toast]);
+
+            // Auto-save active draft to LocalStorage whenever notes/attributes change
+            useEffect(() => {
+                const activeDraftData = {
+                    id: songId,
+                    title: songTitle,
+                    composer,
+                    tempo,
+                    beats: timeSigBeats,
+                    beatValue: timeSigValue,
+                    notes,
+                    measuresCount
+                };
+                localStorage.setItem('colorful_sheet_music_active_song', JSON.stringify(activeDraftData));
+            }, [songId, songTitle, composer, tempo, timeSigBeats, timeSigValue, notes, measuresCount]);
+
+            const showToast = (message, type = 'success') => {
+                setToast({ message, type });
+                setTimeout(() => {
+                    setToast(null);
+                }, 3000);
+            };
 
             const getSubdivisions = () => {
                 return timeSigBeats * 2;
@@ -599,6 +675,7 @@
             const loadDemoSong = (songKey) => {
                 const song = DEMO_SONGS[songKey];
                 if (song) {
+                    setSongId(song.id);
                     setSongTitle(song.title);
                     setComposer(song.composer);
                     setTempo(song.tempo);
@@ -608,7 +685,119 @@
                     const maxMeasure = Math.max(...song.notes.map(n => n.measureIndex), 0);
                     setMeasuresCount(Math.max(4, Math.ceil((maxMeasure + 1) / 2) * 2));
                     setSelectedNoteId(null);
+                    showToast(`Demo "${song.title}" loaded successfully!`, 'success');
                 }
+            };
+
+            const handleSaveToBrowser = () => {
+                const activeId = songId || "song_" + Date.now();
+                const songToSave = {
+                    id: activeId,
+                    title: songTitle.trim() || "Untitled Sheet",
+                    composer: composer.trim() || "Composer",
+                    tempo,
+                    beats: timeSigBeats,
+                    beatValue: timeSigValue,
+                    notes,
+                    measuresCount,
+                    savedAt: Date.now()
+                };
+
+                const existingIndex = savedSongs.findIndex(s => s.id === activeId);
+                let updatedLibrary = [...savedSongs];
+
+                if (existingIndex > -1) {
+                    updatedLibrary[existingIndex] = songToSave;
+                } else {
+                    updatedLibrary.push(songToSave);
+                }
+
+                setSongId(activeId);
+                setSavedSongs(updatedLibrary);
+                localStorage.setItem('colorful_sheet_music_saved_songs', JSON.stringify(updatedLibrary));
+                showToast(`"${songToSave.title}" saved to local browser storage!`, 'success');
+            };
+
+            const handleLoadFromBrowser = (loadedSong) => {
+                setSongId(loadedSong.id);
+                setSongTitle(loadedSong.title);
+                setComposer(loadedSong.composer);
+                setTempo(loadedSong.tempo);
+                setTimeSigBeats(loadedSong.beats);
+                setTimeSigValue(loadedSong.beatValue);
+                setNotes(loadedSong.notes);
+                setMeasuresCount(loadedSong.measuresCount || 4);
+                setSelectedNoteId(null);
+                setIsLoadModalOpen(false);
+                showToast(`Loaded "${loadedSong.title}" successfully!`, 'success');
+            };
+
+            const handleDeleteSavedSong = (idToDelete, e) => {
+                e.stopPropagation(); // Avoid triggering load
+                const updatedLibrary = savedSongs.filter(s => s.id !== idToDelete);
+                setSavedSongs(updatedLibrary);
+                localStorage.setItem('colorful_sheet_music_saved_songs', JSON.stringify(updatedLibrary));
+                showToast("Song removed from local storage", "info");
+            };
+
+            const handleExportJSON = () => {
+                const activeId = songId || "song_" + Date.now();
+                const exportData = {
+                    appSignature: "Colorful_Sheet_Music_Score_Format",
+                    id: activeId,
+                    title: songTitle.trim() || "Untitled Sheet",
+                    composer: composer.trim() || "Composer",
+                    tempo,
+                    beats: timeSigBeats,
+                    beatValue: timeSigValue,
+                    notes,
+                    measuresCount
+                };
+
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${exportData.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_score.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                showToast("Sheet music exported!", 'success');
+            };
+
+            const handleImportJSON = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const parsed = JSON.parse(event.target.result);
+                        if (parsed.appSignature !== "Colorful_Sheet_Music_Score_Format" && !parsed.notes) {
+                            showToast("Error: Invalid score JSON format.", "error");
+                            return;
+                        }
+
+                        setSongId(parsed.id || "song_" + Date.now());
+                        setSongTitle(parsed.title || "Untitled Score");
+                        setComposer(parsed.composer || "Composer");
+                        setTempo(parsed.tempo || 100);
+                        setTimeSigBeats(parsed.beats || 4);
+                        setTimeSigValue(parsed.beatValue || 4);
+                        setNotes(parsed.notes || []);
+                        setMeasuresCount(parsed.measuresCount || 4);
+                        setSelectedNoteId(null);
+
+                        showToast(`Successfully imported "${parsed.title}"!`, "success");
+                    } catch (err) {
+                        showToast("Failed to load file.", "error");
+                        console.error(err);
+                    }
+                };
+                reader.readAsText(file);
+                // Clear input
+                e.target.value = "";
             };
 
             const triggerClearAllNotes = () => {
@@ -619,6 +808,7 @@
                 setNotes([]);
                 setSelectedNoteId(null);
                 setIsClearConfirmOpen(false);
+                showToast("Workspace notes cleared", "info");
             };
 
             const handlePrint = () => {
@@ -639,6 +829,13 @@
                     setMeasuresCount(newCount);
                     setNotes(notes.filter(n => n.measureIndex < newCount));
                     setSelectedNoteId(null);
+                }
+            };
+
+            // Trigger click on hidden file input
+            const triggerFileInput = () => {
+                if (fileInputRef.current) {
+                    fileInputRef.current.click();
                 }
             };
 
@@ -682,7 +879,7 @@
                         </div>
                     </header>
 
-                    { }
+                    {/* Toolbar */}
                     <div class="bg-white border-b border-slate-200 py-3 px-4 shadow-sm no-print sticky top-0 z-20">
                         <div class="container mx-auto flex flex-wrap items-center justify-between gap-4">
 
@@ -770,7 +967,7 @@
                     {/* Workspace Grid Area */}
                     <div class="flex-grow container mx-auto px-2 md:px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
 
-                        { }
+                        {/* Sidebar Tools */}
                         <aside class="lg:col-span-3 space-y-4 no-print">
 
                             {/* Insert note tools with expanded frames to prevent clipping */}
@@ -852,6 +1049,57 @@
                                 </div>
                             </div>
 
+                            { }
+                            {/* Browser Save & JSON Exchange */}
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                    <i data-lucide="folder-git" class="w-3.5 h-3.5 text-indigo-500"></i>
+                                    Save & Export
+                                </h3>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={handleSaveToBrowser}
+                                        class="flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-2 px-3 rounded-lg text-xs transition"
+                                        title="Save to local browser"
+                                    >
+                                        <i data-lucide="save" class="w-3.5 h-3.5"></i> Save
+                                    </button>
+                                    <button
+                                        onClick={() => setIsLoadModalOpen(true)}
+                                        class="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-3 rounded-lg text-xs transition"
+                                        title="Browse previously saved sheets"
+                                    >
+                                        <i data-lucide="folder" class="w-3.5 h-3.5"></i> Open
+                                    </button>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                                    <button
+                                        onClick={handleExportJSON}
+                                        class="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 px-3 rounded-lg text-xs transition"
+                                        title="Export as score JSON file"
+                                    >
+                                        <i data-lucide="download" class="w-3.5 h-3.5"></i> Export
+                                    </button>
+                                    <button
+                                        onClick={triggerFileInput}
+                                        class="flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-3 rounded-lg text-xs transition"
+                                        title="Import score JSON file"
+                                    >
+                                        <i data-lucide="upload" class="w-3.5 h-3.5"></i> Import
+                                    </button>
+                                    {/* Hidden standard JSON input selection */}
+                                    <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        onChange={handleImportJSON}
+                                        accept=".json"
+                                        class="hidden animate-none"
+                                    />
+                                </div>
+                            </div>
+
                             {/* Sheet Utilities settings */}
                             <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
                                 <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Sheet Management</h3>
@@ -872,7 +1120,6 @@
                             </div>
                         </aside>
 
-                        { }
                         {/* Interactive Sheet Music Area */}
                         <main class="lg:col-span-9 space-y-4">
 
@@ -887,7 +1134,7 @@
                                     <div class="flex justify-between items-center mt-2 text-xs text-slate-500 font-medium px-2">
                                         <p>Tempo: <span class="font-bold text-slate-700">{tempo} BPM</span></p>
                                         <p class="font-extrabold text-slate-800 text-[11px] bg-slate-100 px-2 py-0.5 rounded">{timeSigBeats} / {timeSigValue} Time</p>
-                                        <p>By: <span class="text-indigo-600 font-bold">{composer || "Me"}</span></p>
+                                        <p>By: <span class="text-indigo-600 font-bold">{composer || "Composer"}</span></p>
                                     </div>
                                 </div>
 
@@ -1074,7 +1321,7 @@
                                                 <i data-lucide="alert-triangle" class="w-6 h-6"></i>
                                             </div>
                                             <h3 class="text-lg font-bold text-slate-900">Clear All Notes</h3>
-                                            <p class="text-xs text-slate-500 mt-2">Are you sure you want to clear your current sheet music? This cannot be undone.</p>
+                                            <p class="text-xs text-slate-500 mt-2">Are you sure you want to clear your current sheet music? To resume work on it later, save or export it first.</p>
                                         </div>
                                         <div class="flex gap-2">
                                             <button
@@ -1093,8 +1340,82 @@
                                     </div>
                                 </div>
                             )}
+
+                            { }
+                            {/* Saved Songs Browser Library Modal */}
+                            {isLoadModalOpen && (
+                                <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print animate-modal">
+                                    <div class="bg-white p-5 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 space-y-4">
+                                        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                            <h3 class="text-md font-extrabold text-slate-900 flex items-center gap-1.5">
+                                                <i data-lucide="folder-open" class="w-4 h-4 text-indigo-600"></i>
+                                                Load Saved Sheet Music
+                                            </h3>
+                                            <button
+                                                onClick={() => setIsLoadModalOpen(false)}
+                                                class="text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-1 rounded-full transition"
+                                            >
+                                                <i data-lucide="x" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+
+                                        <div class="max-h-64 overflow-y-auto space-y-2 pr-1">
+                                            {savedSongs.length === 0 ? (
+                                                <div class="text-center py-8 text-slate-400 flex flex-col items-center gap-2">
+                                                    <i data-lucide="info" class="w-8 h-8 text-slate-300"></i>
+                                                    <p class="text-xs font-semibold">No saved sheet music found in this browser.</p>
+                                                    <p class="text-[10px] text-slate-400">Compose a masterpiece and click "Save" to populate this library!</p>
+                                                </div>
+                                            ) : (
+                                                savedSongs.map((song) => (
+                                                    <div
+                                                        key={song.id}
+                                                        onClick={() => handleLoadFromBrowser(song)}
+                                                        class="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-150 cursor-pointer transition"
+                                                    >
+                                                        <div class="flex flex-col min-w-0 pr-2">
+                                                            <span class="text-xs font-bold text-slate-800 truncate">{song.title}</span>
+                                                            <span class="text-[10px] text-slate-500 font-medium truncate">By {song.composer} • {song.tempo} BPM</span>
+                                                            <span class="text-[9px] text-slate-400 mt-1">
+                                                                Last saved: {new Date(song.savedAt || Date.now()).toLocaleDateString()} at {new Date(song.savedAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
+                                                        <button
+                                                            onClick={(e) => handleDeleteSavedSong(song.id, e)}
+                                                            class="text-rose-500 hover:text-rose-700 bg-white hover:bg-rose-50 border border-slate-200 p-1.5 rounded-lg transition"
+                                                            title="Delete sheet"
+                                                        >
+                                                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                        </button>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+
+                                        <div class="flex gap-2 pt-2 border-t border-slate-100 justify-end">
+                                            <button
+                                                onClick={() => setIsLoadModalOpen(false)}
+                                                class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs transition"
+                                            >
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                         </main>
                     </div>
+
+                    {/* Toast custom notification alert replacements */}
+                    {toast && (
+                        <div class={`fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold transition-all transform animate-modal ${toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                            }`}>
+                            <i data-lucide={toast.type === 'error' ? 'alert-circle' : 'check-circle-2'} class="w-4 h-4"></i>
+                            {toast.message}
+                        </div>
+                    )}
+
                 </div>
             );
 
@@ -1210,7 +1531,7 @@
                             <line x1="0" y1="110" x2="350" y2="110" stroke="#f1f5f9" strokeWidth="2" className="no-print" />
                         )}
 
-                        {/* Treble Clef: Correctly oriented right-side up with dot at bottom and loop at top */}
+                        {/* Treble Clef: Correctly oriented right-side up with spiral on G4 line */}
                         {isFirstMeasure && selectedStaffView !== 'bass' && (
                             <g transform="translate(10, 31) scale(0.032, 0.032)">
                                 <path d="M 592.10873,1275.9669 C 461.75172,1268.3902 328.65904,1186.6265 249.0601,1092.783 C 156.77394,983.97782 118.72592,836.04683 128.47199,714.56357 C 157.10277,357.61288 545.27831,146.63848 688.97108,-9.280262 C 785.15294,-113.64625 805.31643,-164.52308 826.79977,-218.19949 C 868.39181,-322.09965 875.09166,-443.8341 792.63375,-452.92251 C 713.90712,-461.59988 649.13737,-337.79201 620.20973,-253.17845 C 594.19587,-177.07331 576.90507,-100.71696 592.5563,13.979673 C 599.58954,65.50958 793.18636,1503.9125 796.45179,1526.2088 C 829.05589,1749.0255 701.63092,1841.2249 571.55248,1857.6251 C 290.65671,1893.038 200.52617,1607.5843 326.4212,1499.1719 C 423.34291,1415.7001 564.35026,1487.3615 556.73245,1624.5919 C 549.98693,1746.1391 430.80546,1749.7197 400.35244,1746.9429 C 447.10065,1830.7846 799.52998,1874.5871 745.41513,1495.7923 C 737.811,1442.5634 558.91549,90.842953 554.53112,60.595454 C 521.71238,-165.84753 516.71147,-345.08557 634.69182,-554.25141 C 678.24767,-631.46637 747.0821,-681.3156 780.87362,-674.7893 C 788.29962,-673.35526 795.69824,-670.62872 801.57144,-664.56827 C 892.07191,-571.31845 919.83494,-364.53202 909.9199,-245.74332 C 899.76736,-124.11391 894.1088,1.7993735 773.16902,148.63428 C 726.36601,205.45738 583.54553,330.63538 501.65851,402.55255 C 386.60107,503.59831 303.14756,591.85179 257.99323,698.31862 C 207.24886,817.97506 198.65826,968.6006 313.27268,1102.2505 C 379.20247,1177.7619 488.59222,1231.3424 580.65459,1232.4842 C 836.63719,1235.6628 911.39048,1109.4801 913.77904,966.58197 C 917.71126,731.28351 633.64596,642.32214 516.85762,804.10953 C 449.14212,897.92109 478.90552,996.66049 524.38411,1043.6371 C 539.99424,1059.7587 557.43121,1072.0395 573.92734,1078.8855 C 579.9056,1081.3654 593.96751,1087.9054 589.97593,1097.4779 C 586.6557,1105.4428 580.20702,1105.8904 574.33381,1105.1871 C 500.68573,1096.3544 419.13667,1025.958 399.0828,904.87212 C 369.86288,728.38801 525.6035,519.0349 747.9133,553.274 C 893.45572,575.68903 1028.5853,934.11946 1016.7338,934.11946 C 1006.5722,1133.9822 840.87996,1290.4262 592.10873,1275.9669 z" fill="#0f172a" />
@@ -1252,7 +1573,6 @@
                             />
                         )}
 
-                        { }
                         {/* Hover Ghost Preview Note */}
                         {hoverState.active && hoverState.measureIndex === measureIdx && (() => {
                             const noteX = leftPadding + (hoverState.beat * stepWidth) + (stepWidth / 2);
@@ -1364,7 +1684,7 @@
                                         </text>
                                     )}
 
-                                    {/* Whole notes styled as beautiful single open ovals with robust pitch contrasts */}
+                                    {/* Whole notes styled as beautiful simple open ovals with robust pitch contrasts */}
                                     {note.duration === 8 ? (
                                         <g>
                                             <ellipse cx={noteX} cy={noteY} rx="11" ry="7" fill="#ffffff" stroke={colorInfo.hex} strokeWidth="3.2" transform={`rotate(-20 ${noteX} ${noteY})`} />
@@ -1430,15 +1750,7 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById("root"));
-        root.render(<App />);
-
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                if (typeof lucide !== 'undefined') {
-                    lucide.createIcons();
-                }
-            }, 500);
-        });
+                        root.render(<App />);
     </script>
 </body>
 
