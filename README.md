@@ -1,7 +1,9 @@
 # Piano Sheet Music Creator 🎹 🎼
 A simple, reactive app to create color-coded piano sheet music for teaching new students.
 
-Created with Gemini Canvas using Gemini 3.5 Flash. I made a few refinements after multiple iterations with Gemini.
+> Created with Gemini Canvas using Gemini 3.5 Flash. I made a few refinements after multiple iterations with Gemini.
+
+<span style="font-size: 1.6em;">Access the app: [**Piano Sheet Music Creator**](https://rparkr.github.io/piano-sheet-music-creator/)</span>
 
 # Screenshots
 _Widescreen layout_
