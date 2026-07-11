@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piano Sheet Music Creator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Quicksand', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Custom sleek scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Prevent text selection when drawing or clicking staff */
+        .no-select {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Responsive container with scroll support on small screens */
+        .system-scroll-container {
+            display: flex;
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        @keyframes modalFadeIn {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        .animate-modal {
+            animation: modalFadeIn 0.15s ease-out forwards;
+        }
+
+        /* Bold prominence for custom ledger lines */
+        .ledger-line {
+            stroke: #000000 !important;
+            stroke-width: 2.2px !important;
+        }
+
+        @media print {
+            @page {
+                size: portrait;
+                margin: 1.2cm 1cm;
+            }
+
+            body {
+                background: white !important;
+                color: black !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+
+            /* Clean transparent layout to eliminate shadow ink bleeding */
+            .print-layout {
+                display: block !important;
+                width: 100% !important;
+                box-shadow: none !important;
+                border: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                background: transparent !important;
+                background-color: transparent !important;
+            }
+
+            .print-system-row {
+                display: flex !important;
+                flex-direction: row !important;
+                width: 100% !important;
+                gap: 0px !important;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                margin-bottom: 2.2rem !important;
+                background: transparent !important;
+            }
+
+            .staff-line {
+                stroke: #000000 !important;
+                stroke-width: 1.5px !important;
+            }
+
+            .ledger-line {
+                stroke: #000000 !important;
+                stroke-width: 2.2px !important;
+            }
+
+            .bar-line {
+                stroke: #000000 !important;
+                stroke-width: 3px !important;
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen flex flex-col text-slate-800 no-select">
+
+    <div id="root" class="flex-grow flex flex-col"></div>
+
+    <!-- React and Babel Standalone CDN libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const NOTE_COLORS = {
+            'C': { hex: '#EF4444', text: '#FFFFFF', light: '#FEF2F2', border: '#DC2626' },
+            'D': { hex: '#F97316', text: '#FFFFFF', light: '#FFF7ED', border: '#EA580C' },
+            'E': { hex: '#F59E0B', text: '#1E293B', light: '#FEFCE8', border: '#D97706' },
+            'F': { hex: '#10B981', text: '#FFFFFF', light: '#ECFDF5', border: '#059669' },
+            'G': { hex: '#3B82F6', text: '#FFFFFF', light: '#EFF6FF', border: '#2563EB' },
+            'A': { hex: '#6366F1', text: '#FFFFFF', light: '#EEF2FF', border: '#4F46E5' },
+            'B': { hex: '#EC4899', text: '#FFFFFF', light: '#FDF2F8', border: '#DB2777' }
+        };
+
+        // Pitch Map dictionary mapping note names, octave positions, and MIDI-based frequency
+        const DIATONIC_STEPS = {
+            treble: [
+                { step: 14, name: 'C', octave: 6, freq: 1046.50 },
+                { step: 13, name: 'B', octave: 5, freq: 987.77 },
+                { step: 12, name: 'A', octave: 5, freq: 880.00 },
+                { step: 11, name: 'G', octave: 5, freq: 783.99 },
+                { step: 10, name: 'F', octave: 5, freq: 698.46 },
+                { step: 9, name: 'E', octave: 5, freq: 659.25 },
+                { step: 8, name: 'D', octave: 5, freq: 587.33 },
+                { step: 7, name: 'C', octave: 5, freq: 523.25 },
+                { step: 6, name: 'B', octave: 4, freq: 493.88 },
+                { step: 5, name: 'A', octave: 4, freq: 440.00 },
+                { step: 4, name: 'G', octave: 4, freq: 392.00 },
+                { step: 3, name: 'F', octave: 4, freq: 349.23 },
+                { step: 2, name: 'E', octave: 4, freq: 329.63 },
+                { step: 1, name: 'D', octave: 4, freq: 293.66 },
+                { step: 0, name: 'C', octave: 4, freq: 261.63 }
+            ],
+            bass: [
+                { step: 0, name: 'C', octave: 4, freq: 261.63 },
+                { step: -1, name: 'B', octave: 3, freq: 246.94 },
+                { step: -2, name: 'A', octave: 3, freq: 220.00 },
+                { step: -3, name: 'G', octave: 3, freq: 196.00 },
+                { step: -4, name: 'F', octave: 3, freq: 174.61 },
+                { step: -5, name: 'E', octave: 3, freq: 164.81 },
+                { step: -6, name: 'D', octave: 3, freq: 146.83 },
+                { step: -7, name: 'C', octave: 3, freq: 130.81 },
+                { step: -8, name: 'B', octave: 2, freq: 123.47 },
+                { step: -9, name: 'A', octave: 2, freq: 110.00 },
+                { step: -10, name: 'G', octave: 2, freq: 97.99 },
+                { step: -11, name: 'F', octave: 2, freq: 87.31 },
+                { step: -12, name: 'E', octave: 2, freq: 82.41 }
+            ]
+        };
+
+        const DEMO_SONGS = {
+            maryLamb: {
+                title: "Mary Had a Little Lamb",
+                composer: "Traditional",
+                tempo: 100,
+                beats: 4,
+                beatValue: 4,
+                notes: [
+                    { id: '1', measureIndex: 0, beat: 0, step: 2, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '2', measureIndex: 0, beat: 2, step: 1, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '3', measureIndex: 0, beat: 4, step: 0, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '4', measureIndex: 0, beat: 6, step: 1, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '5', measureIndex: 1, beat: 0, step: 2, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '6', measureIndex: 1, beat: 2, step: 2, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '7', measureIndex: 1, beat: 4, step: 2, duration: 4, clef: 'treble', accidental: 'none' },
+                    { id: '8', measureIndex: 2, beat: 0, step: 1, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '9', measureIndex: 2, beat: 2, step: 1, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '10', measureIndex: 2, beat: 4, step: 1, duration: 4, clef: 'treble', accidental: 'none' },
+                    { id: '11', measureIndex: 3, beat: 0, step: 2, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '12', measureIndex: 3, beat: 2, step: 4, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '13', measureIndex: 3, beat: 4, step: 4, duration: 4, clef: 'treble', accidental: 'none' },
+
+                    { id: 'b1', measureIndex: 0, beat: 0, step: -7, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b2', measureIndex: 0, beat: 4, step: -3, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b3', measureIndex: 1, beat: 0, step: -7, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b4', measureIndex: 1, beat: 4, step: -3, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b5', measureIndex: 2, beat: 0, step: -6, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b6', measureIndex: 2, beat: 4, step: -3, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b7', measureIndex: 3, beat: 0, step: -7, duration: 4, clef: 'bass', accidental: 'none' },
+                    { id: 'b8', measureIndex: 3, beat: 4, step: -3, duration: 4, clef: 'bass', accidental: 'none' },
+                ]
+            },
+            odeJoy: {
+                title: "Ode to Joy",
+                composer: "L. van Beethoven",
+                tempo: 110,
+                beats: 4,
+                beatValue: 4,
+                notes: [
+                    { id: '1', measureIndex: 0, beat: 0, step: 9, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '2', measureIndex: 0, beat: 2, step: 9, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '3', measureIndex: 0, beat: 4, step: 10, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '4', measureIndex: 0, beat: 6, step: 11, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '5', measureIndex: 1, beat: 0, step: 11, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '6', measureIndex: 1, beat: 2, step: 10, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '7', measureIndex: 1, beat: 4, step: 9, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '8', measureIndex: 1, beat: 6, step: 8, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '9', measureIndex: 2, beat: 0, step: 7, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '10', measureIndex: 2, beat: 2, step: 7, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '11', measureIndex: 2, beat: 4, step: 8, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '12', measureIndex: 2, beat: 6, step: 9, duration: 2, clef: 'treble', accidental: 'none' },
+                    { id: '13', measureIndex: 3, beat: 0, step: 9, duration: 3, clef: 'treble', accidental: 'none' },
+                    { id: '14', measureIndex: 3, beat: 3, step: 8, duration: 1, clef: 'treble', accidental: 'none' },
+                    { id: '15', measureIndex: 3, beat: 4, step: 8, duration: 4, clef: 'treble', accidental: 'none' },
+
+                    { id: 'b1', measureIndex: 0, beat: 0, step: -7, duration: 8, clef: 'bass', accidental: 'none' },
+                    { id: 'b2', measureIndex: 1, beat: 0, step: -3, duration: 8, clef: 'bass', accidental: 'none' },
+                    { id: 'b3', measureIndex: 2, beat: 0, step: -7, duration: 8, clef: 'bass', accidental: 'none' },
+                    { id: 'b4', measureIndex: 3, beat: 0, step: -3, duration: 8, clef: 'bass', accidental: 'none' }
+                ]
+            }
+        };
+
+        function App() {
+            const [songTitle, setSongTitle] = useState("Mary Had a Little Lamb");
+            const [composer, setComposer] = useState("Me");
+            const [measuresCount, setMeasuresCount] = useState(4);
+            const [notes, setNotes] = useState(DEMO_SONGS.maryLamb.notes);
+
+            const [timeSigBeats, setTimeSigBeats] = useState(4);
+            const [timeSigValue, setTimeSigValue] = useState(4);
+            const [selectedStaffView, setSelectedStaffView] = useState('both');
+            const [selectedDuration, setSelectedDuration] = useState(2); // 1=Eighth, 2=Quarter, 4=Half, 8=Whole
+            const [tempo, setTempo] = useState(100);
+            const [volume, setVolume] = useState(0.8);
+
+            const [selectedNoteId, setSelectedNoteId] = useState(null);
+            const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+            const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+
+            const [isPlaying, setIsPlaying] = useState(false);
+            const [currentBeat, setCurrentBeat] = useState(-1);
+
+            const playbackIntervalRef = useRef(null);
+            const audioCtxRef = useRef(null);
+            const touchTimerRef = useRef(null);
+            const isLongPressTriggered = useRef(false);
+
+            const [hoverState, setHoverState] = useState({
+                measureIndex: null,
+                beat: null,
+                step: null,
+                clef: null,
+                active: false
+            });
+
+            const getSubdivisions = () => {
+                return timeSigBeats * 2;
+            };
+
+            const getAudioContext = () => {
+                if (!audioCtxRef.current) {
+                    audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                return audioCtxRef.current;
+            };
+
+            const getAccidentalFreq = (baseFreq, accidental) => {
+                if (accidental === 'sharp') return baseFreq * Math.pow(2, 1 / 12);
+                if (accidental === 'flat') return baseFreq * Math.pow(2, -1 / 12);
+                return baseFreq;
+            };
+
+            const playSynthNote = (freq, durationMs) => {
+                try {
+                    const ctx = getAudioContext();
+                    if (ctx.state === 'suspended') {
+                        ctx.resume();
+                    }
+
+                    const osc1 = ctx.createOscillator();
+                    const osc2 = ctx.createOscillator();
+                    const gainNode = ctx.createGain();
+
+                    osc1.connect(gainNode);
+                    osc2.connect(gainNode);
+                    gainNode.connect(ctx.destination);
+
+                    const now = ctx.currentTime;
+                    const durationSec = durationMs / 1000;
+
+                    osc1.type = 'triangle';
+                    osc1.frequency.setValueAtTime(freq, now);
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(freq * 2, now);
+
+                    gainNode.gain.setValueAtTime(0, now);
+                    gainNode.gain.linearRampToValueAtTime(volume * 0.5, now + 0.005);
+                    gainNode.gain.exponentialRampToValueAtTime(volume * 0.08, now + durationSec * 0.6);
+                    gainNode.gain.linearRampToValueAtTime(0, now + durationSec);
+
+                    osc1.start(now);
+                    osc2.start(now);
+                    osc1.stop(now + durationSec);
+                    osc2.stop(now + durationSec);
+                } catch (e) {
+                    console.error("Synthesizer context blocked: ", e);
+                }
+            };
+
+            const spacing = 10;
+            const stepHeight = spacing / 2;
+
+            // Absolute mathematical center-locked positions
+            const getNoteYPosition = (clef, step) => {
+                if (clef === 'treble') {
+                    // Step 6 (B4) is at absolute center line Y = 50
+                    return 50 - (step - 6) * stepHeight;
+                } else {
+                    // Step -6 (D3) is at absolute center line Y = 170
+                    return 170 - (step - (-6)) * stepHeight;
+                }
+            };
+
+            const handleMouseMove = (e, measureIdx) => {
+                const svg = e.currentTarget;
+                const rect = svg.getBoundingClientRect();
+
+                // Map the mouse pointer dynamically based on SVG Viewbox constraints to eliminate wide-screen lag
+                const viewBoxY = selectedStaffView === 'bass' ? 110 : -10;
+                const viewBoxHeight = selectedStaffView === 'both' ? 240 : (selectedStaffView === 'treble' ? 110 : 120);
+
+                const x = ((e.clientX - rect.left) / rect.width) * 350;
+                const y = viewBoxY + ((e.clientY - rect.top) / rect.height) * viewBoxHeight;
+
+                const isFirstMeasure = measureIdx % 2 === 0;
+                const leftPadding = isFirstMeasure ? 55 : 20;
+                const measureWidth = 350 - leftPadding;
+
+                let relativeX = x - leftPadding;
+                if (relativeX < 0) relativeX = 0;
+                if (relativeX > measureWidth) relativeX = measureWidth;
+
+                const totalSubs = getSubdivisions();
+                const colWidth = measureWidth / totalSubs;
+                let beat = Math.floor(relativeX / colWidth);
+                beat = Math.max(0, Math.min(totalSubs - 1, beat));
+
+                let clef = selectedStaffView;
+                if (selectedStaffView === 'both') {
+                    clef = y < 110 ? 'treble' : 'bass';
+                }
+
+                let step = 0;
+                if (clef === 'treble') {
+                    step = Math.round((50 - y) / stepHeight) + 6;
+                    step = Math.max(0, Math.min(14, step));
+                } else {
+                    step = Math.round((170 - y) / stepHeight) - 6;
+                    step = Math.max(-12, Math.min(0, step));
+                }
+
+                setHoverState({
+                    measureIndex: measureIdx,
+                    beat,
+                    step,
+                    clef,
+                    active: true
+                });
+            };
+
+            const handleMouseLeave = () => {
+                setHoverState(prev => ({ ...prev, active: false }));
+            };
+
+            const handleMeasureTouchOrClick = (e, measureIdx) => {
+                if (isLongPressTriggered.current) {
+                    isLongPressTriggered.current = false;
+                    return;
+                }
+
+                if (!hoverState.active) return;
+                const { beat, step, clef } = hoverState;
+
+                if (selectedStaffView !== 'both' && clef !== selectedStaffView) return;
+
+                const matchedNote = notes.find(n =>
+                    n.measureIndex === measureIdx &&
+                    n.beat === beat &&
+                    n.step === step &&
+                    n.clef === clef
+                );
+
+                if (matchedNote) {
+                    setSelectedNoteId(matchedNote.id);
+                    setIsEditModalOpen(true);
+
+                    const pitchObj = getPitchInfo(matchedNote.clef, matchedNote.step);
+                    const modifiedFreq = getAccidentalFreq(pitchObj.freq, matchedNote.accidental || 'none');
+                    playSynthNote(modifiedFreq, 250);
+                } else {
+                    const newNote = {
+                        id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                        measureIndex: measureIdx,
+                        beat,
+                        step,
+                        duration: selectedDuration,
+                        clef,
+                        accidental: 'none'
+                    };
+
+                    const pitchObj = getPitchInfo(clef, step);
+                    if (pitchObj) {
+                        const durationMs = (60000 / tempo) * (selectedDuration / 2);
+                        playSynthNote(pitchObj.freq, durationMs);
+                    }
+
+                    setNotes([...notes, newNote]);
+                }
+            };
+
+            const handleNoteTouchStart = (e, note) => {
+                e.stopPropagation();
+                isLongPressTriggered.current = false;
+
+                touchTimerRef.current = setTimeout(() => {
+                    isLongPressTriggered.current = true;
+                    setSelectedNoteId(note.id);
+                    setIsEditModalOpen(true);
+
+                    const pitchObj = getPitchInfo(note.clef, note.step);
+                    const modifiedFreq = getAccidentalFreq(pitchObj.freq, note.accidental || 'none');
+                    playSynthNote(modifiedFreq, 300);
+                }, 500);
+            };
+
+            const handleNoteTouchEnd = (e, note) => {
+                if (touchTimerRef.current) {
+                    clearTimeout(touchTimerRef.current);
+                }
+            };
+
+            const deleteNote = (noteId) => {
+                setNotes(prev => prev.filter(n => n.id !== noteId));
+                setIsEditModalOpen(false);
+                setSelectedNoteId(null);
+            };
+
+            const nudgePitch = (direction) => {
+                if (!selectedNoteId) return;
+                setNotes(prev => prev.map(n => {
+                    if (n.id !== selectedNoteId) return n;
+
+                    let newStep = n.step + direction;
+                    if (n.clef === 'treble') {
+                        newStep = Math.max(0, Math.min(14, newStep));
+                    } else {
+                        newStep = Math.max(-12, Math.min(0, newStep));
+                    }
+
+                    const pitchObj = getPitchInfo(n.clef, newStep);
+                    const modifiedFreq = getAccidentalFreq(pitchObj.freq, n.accidental || 'none');
+                    playSynthNote(modifiedFreq, 200);
+
+                    return { ...n, step: newStep };
+                }));
+            };
+
+            const shiftBeat = (direction) => {
+                if (!selectedNoteId) return;
+                setNotes(prev => prev.map(n => {
+                    if (n.id !== selectedNoteId) return n;
+
+                    const totalSubs = getSubdivisions();
+                    let newBeat = n.beat + direction;
+                    let newMeasure = n.measureIndex;
+
+                    if (newBeat < 0) {
+                        if (newMeasure > 0) {
+                            newMeasure -= 1;
+                            newBeat = totalSubs - 1;
+                        } else {
+                            newBeat = 0;
+                        }
+                    } else if (newBeat >= totalSubs) {
+                        if (newMeasure < measuresCount - 1) {
+                            newMeasure += 1;
+                            newBeat = 0;
+                        } else {
+                            newBeat = totalSubs - 1;
+                        }
+                    }
+
+                    return { ...n, beat: newBeat, measureIndex: newMeasure };
+                }));
+            };
+
+            const updateNoteDuration = (duration) => {
+                if (!selectedNoteId) return;
+                setNotes(prev => prev.map(n => {
+                    if (n.id !== selectedNoteId) return n;
+                    return { ...n, duration };
+                }));
+            };
+
+            const updateNoteAccidental = (accidental) => {
+                if (!selectedNoteId) return;
+                setNotes(prev => prev.map(n => {
+                    if (n.id !== selectedNoteId) return n;
+                    const pitchObj = getPitchInfo(n.clef, n.step);
+                    const modifiedFreq = getAccidentalFreq(pitchObj.freq, accidental);
+                    playSynthNote(modifiedFreq, 250);
+                    return { ...n, accidental };
+                }));
+            };
+
+            useEffect(() => {
+                if (isPlaying) {
+                    const totalSubs = getSubdivisions();
+                    const tickDurationMs = (60000 / tempo) / (totalSubs / timeSigBeats);
+
+                    playbackIntervalRef.current = setInterval(() => {
+                        setCurrentBeat(prevBeat => {
+                            const nextBeat = prevBeat + 1;
+                            const totalBeats = measuresCount * totalSubs;
+
+                            if (nextBeat >= totalBeats) {
+                                setIsPlaying(false);
+                                return -1;
+                            }
+
+                            const currentMeasure = Math.floor(nextBeat / totalSubs);
+                            const currentBeatOfMeasure = nextBeat % totalSubs;
+
+                            const activeNotes = notes.filter(n =>
+                                n.measureIndex === currentMeasure &&
+                                n.beat === currentBeatOfMeasure &&
+                                (selectedStaffView === 'both' || n.clef === selectedStaffView)
+                            );
+
+                            activeNotes.forEach(note => {
+                                const pitchObj = DIATONIC_STEPS[note.clef].find(p => p.step === note.step);
+                                if (pitchObj) {
+                                    const noteDurationMs = (60000 / tempo) * (note.duration / 2);
+                                    const finalFreq = getAccidentalFreq(pitchObj.freq, note.accidental || 'none');
+                                    playSynthNote(finalFreq, noteDurationMs);
+                                }
+                            });
+
+                            return nextBeat;
+                        });
+                    }, tickDurationMs);
+                } else {
+                    clearInterval(playbackIntervalRef.current);
+                    setCurrentBeat(-1);
+                }
+
+                return () => clearInterval(playbackIntervalRef.current);
+            }, [isPlaying, notes, tempo, measuresCount, volume, timeSigBeats, timeSigValue, selectedStaffView]);
+
+            const getPitchInfo = (clef, step) => {
+                const stepObj = DIATONIC_STEPS[clef].find(p => p.step === step);
+                if (!stepObj) return { name: 'C', octave: 4, freq: 261.63 };
+                return stepObj;
+            };
+
+            const loadDemoSong = (songKey) => {
+                const song = DEMO_SONGS[songKey];
+                if (song) {
+                    setSongTitle(song.title);
+                    setComposer(song.composer);
+                    setTempo(song.tempo);
+                    setTimeSigBeats(song.beats || 4);
+                    setTimeSigValue(song.beatValue || 4);
+                    setNotes(song.notes);
+                    const maxMeasure = Math.max(...song.notes.map(n => n.measureIndex), 0);
+                    setMeasuresCount(Math.max(4, Math.ceil((maxMeasure + 1) / 2) * 2));
+                    setSelectedNoteId(null);
+                }
+            };
+
+            const triggerClearAllNotes = () => {
+                setIsClearConfirmOpen(true);
+            };
+
+            const confirmClearAllNotes = () => {
+                setNotes([]);
+                setSelectedNoteId(null);
+                setIsClearConfirmOpen(false);
+            };
+
+            const handlePrint = () => {
+                setSelectedNoteId(null);
+                setIsEditModalOpen(false);
+                setTimeout(() => {
+                    window.print();
+                }, 100);
+            };
+
+            const addSystem = () => {
+                setMeasuresCount(prev => prev + 2);
+            };
+
+            const removeSystem = () => {
+                if (measuresCount > 2) {
+                    const newCount = measuresCount - 2;
+                    setMeasuresCount(newCount);
+                    setNotes(notes.filter(n => n.measureIndex < newCount));
+                    setSelectedNoteId(null);
+                }
+            };
+
+            return (
+                <div class="flex-grow flex flex-col min-h-screen bg-slate-50 print:bg-transparent print:text-black">
+
+                    {/* Header Controls */}
+                    <header class="bg-slate-900 border-b border-slate-800 text-white p-3 no-print">
+                        <div class="container mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
+                            <div class="flex items-center gap-3 w-full md:w-auto">
+                                <div class="bg-indigo-600 p-1.5 rounded-lg">
+                                    <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                        <path d="M9 18V5l12-2v13" />
+                                        <circle cx="6" cy="18" r="3" />
+                                        <circle cx="18" cy="16" r="3" />
+                                    </svg>
+                                </div>
+                                <div class="flex flex-col sm:flex-row gap-2 w-full">
+                                    <input
+                                        type="text"
+                                        value={songTitle}
+                                        onChange={(e) => setSongTitle(e.target.value)}
+                                        placeholder="Song Name"
+                                        class="bg-slate-800 focus:bg-slate-700 text-white font-bold px-2.5 py-1 rounded text-sm focus:outline-none transition border border-transparent focus:border-indigo-500 w-full sm:w-44"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={composer}
+                                        onChange={(e) => setComposer(e.target.value)}
+                                        placeholder="Composer"
+                                        class="bg-slate-800 focus:bg-slate-700 text-slate-300 px-2.5 py-1 rounded text-xs focus:outline-none transition border border-transparent focus:border-indigo-500 w-full sm:w-28"
+                                    />
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-[10px] uppercase font-extrabold text-slate-500 tracking-wider">Practice Presets:</span>
+                                <button onClick={() => loadDemoSong('maryLamb')} class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 px-2.5 py-1 rounded text-xs font-bold transition">Mary Lamb</button>
+                                <button onClick={() => loadDemoSong('odeJoy')} class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 px-2.5 py-1 rounded text-xs font-bold transition">Ode To Joy</button>
+                            </div>
+                        </div>
+                    </header>
+
+                    { }
+                    <div class="bg-white border-b border-slate-200 py-3 px-4 shadow-sm no-print sticky top-0 z-20">
+                        <div class="container mx-auto flex flex-wrap items-center justify-between gap-4">
+
+                            <div class="flex items-center gap-2">
+                                <button
+                                    onClick={() => setIsPlaying(!isPlaying)}
+                                    class={`flex items-center gap-2 text-white font-extrabold py-2 px-5 rounded-lg shadow-sm transition text-sm ${isPlaying ? 'bg-amber-500 hover:bg-amber-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                                >
+                                    {isPlaying ? <i data-lucide="pause" class="w-4 h-4 fill-white"></i> : <i data-lucide="play" class="w-4 h-4 fill-white"></i>}
+                                    {isPlaying ? 'Pause' : 'Play'}
+                                </button>
+                            </div>
+
+                            <div class="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                                <div class="flex flex-col items-center">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="12"
+                                        value={timeSigBeats}
+                                        onChange={(e) => {
+                                            setTimeSigBeats(Math.max(1, parseInt(e.target.value) || 4));
+                                            setSelectedNoteId(null);
+                                        }}
+                                        class="w-8 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-800 p-0.5"
+                                        title="Beats per Measure"
+                                    />
+                                    <div class="w-8 border-t border-slate-400 my-0.5"></div>
+                                    <input
+                                        type="number"
+                                        min="2"
+                                        max="8"
+                                        step="2"
+                                        value={timeSigValue}
+                                        onChange={(e) => {
+                                            setTimeSigValue(Math.max(2, parseInt(e.target.value) || 4));
+                                            setSelectedNoteId(null);
+                                        }}
+                                        class="w-8 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-800 p-0.5"
+                                        title="Beats Unit"
+                                    />
+                                </div>
+                                <div class="text-[11px] text-slate-500 leading-tight">
+                                    <span class="font-extrabold text-slate-800 block">Meter</span>
+                                    Custom Meter
+                                </div>
+                            </div>
+
+                            <div class="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                                <i data-lucide="gauge" class="w-4 h-4 text-slate-500"></i>
+                                <div class="flex items-center gap-2">
+                                    <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tempo:</div>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="240"
+                                        value={tempo}
+                                        onChange={(e) => setTempo(Math.max(0, Math.min(240, parseInt(e.target.value))))}
+                                        class="w-16 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-800 p-1"
+                                    />
+                                    <span class="text-xs font-semibold text-slate-600">BPM</span>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col gap-1">
+                                <span class="text-[9px] font-bold text-slate-400 uppercase leading-none">View Mode</span>
+                                <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg">
+                                    {['both', 'treble', 'bass'].map((focus) => (
+                                        <button
+                                            key={focus}
+                                            onClick={() => {
+                                                setSelectedStaffView(focus);
+                                                setSelectedNoteId(null);
+                                            }}
+                                            class={`px-3 py-1 text-xs font-extrabold rounded capitalize transition ${selectedStaffView === focus ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'}`}
+                                        >
+                                            {focus}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Workspace Grid Area */}
+                    <div class="flex-grow container mx-auto px-2 md:px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+                        { }
+                        <aside class="lg:col-span-3 space-y-4 no-print">
+
+                            {/* Insert note tools with expanded frames to prevent clipping */}
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                                <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                    <i data-lucide="music-4" class="w-3.5 h-3.5 text-indigo-500"></i>
+                                    Insert Note Length
+                                </h3>
+
+                                <div class="grid grid-cols-4 lg:grid-cols-2 gap-1.5">
+                                    {/* Whole Note */}
+                                    <button
+                                        onClick={() => setSelectedDuration(8)}
+                                        class={`p-2 flex flex-col items-center justify-between border rounded-lg h-24 transition ${selectedDuration === 8 ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        <div class="flex-grow flex items-center justify-center w-full">
+                                            <svg class="w-12 h-10 text-current" viewBox="0 0 30 20">
+                                                <ellipse cx="15" cy="10" rx="9" ry="6" transform="rotate(-22 15 10)" fill="none" stroke="currentColor" strokeWidth="2.5" />
+                                            </svg>
+                                        </div>
+                                        <span class="text-[10px] font-bold">Whole</span>
+                                    </button>
+
+                                    {/* Half Note */}
+                                    <button
+                                        onClick={() => setSelectedDuration(4)}
+                                        class={`p-2 flex flex-col items-center justify-between border rounded-lg h-24 transition ${selectedDuration === 4 ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        <div class="flex-grow flex items-center justify-center w-full">
+                                            <svg class="w-12 h-12 text-current" viewBox="0 0 24 36">
+                                                <ellipse cx="9" cy="26" rx="7" ry="4.5" transform="rotate(-22 9 26)" fill="none" stroke="currentColor" strokeWidth="2" />
+                                                <line x1="15" y1="26" x2="15" y2="4" stroke="currentColor" strokeWidth="2" />
+                                            </svg>
+                                        </div>
+                                        <span class="text-[10px] font-bold">Half</span>
+                                    </button>
+
+                                    {/* Quarter Note */}
+                                    <button
+                                        onClick={() => setSelectedDuration(2)}
+                                        class={`p-2 flex flex-col items-center justify-between border rounded-lg h-24 transition ${selectedDuration === 2 ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        <div class="flex-grow flex items-center justify-center w-full">
+                                            <svg class="w-12 h-12 text-current" viewBox="0 0 24 36">
+                                                <ellipse cx="9" cy="26" rx="7" ry="4.5" transform="rotate(-22 9 26)" fill="currentColor" />
+                                                <line x1="15" y1="26" x2="15" y2="4" stroke="currentColor" strokeWidth="2" />
+                                            </svg>
+                                        </div>
+                                        <span class="text-[10px] font-bold">Quarter</span>
+                                    </button>
+
+                                    {/* Eighth Note */}
+                                    <button
+                                        onClick={() => setSelectedDuration(1)}
+                                        class={`p-2 flex flex-col items-center justify-between border rounded-lg h-24 transition ${selectedDuration === 1 ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        <div class="flex-grow flex items-center justify-center w-full">
+                                            <svg class="w-12 h-12 text-current" viewBox="0 0 30 36">
+                                                <ellipse cx="9" cy="26" rx="7" ry="4.5" transform="rotate(-22 9 26)" fill="currentColor" />
+                                                <line x1="15" y1="26" x2="15" y2="4" stroke="currentColor" strokeWidth="2" />
+                                                <path d="M 15 4 C 20 10, 23 14, 23 20 C 23 23, 21 25, 19 26 C 21 23, 21 18, 17 12 L 15 10" fill="currentColor" />
+                                            </svg>
+                                        </div>
+                                        <span class="text-[10px] font-bold">Eighth</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Color Legend Palette */}
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-2">
+                                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Color Guide</h3>
+                                <div class="grid grid-cols-7 gap-1">
+                                    {Object.entries(NOTE_COLORS).map(([name, val]) => (
+                                        <div key={name} class="flex flex-col items-center p-1 rounded-md" style={{ backgroundColor: val.light }}>
+                                            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-extrabold text-white shadow-sm" style={{ backgroundColor: val.hex }}>{name}</span>
+                                            <span class="text-[9px] font-bold text-slate-500 mt-0.5">{name}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Sheet Utilities settings */}
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Sheet Management</h3>
+                                <div class="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                    <span class="font-extrabold text-slate-600">Total Measures: {measuresCount}</span>
+                                    <div class="flex gap-1">
+                                        <button onClick={removeSystem} disabled={measuresCount <= 2} class="px-2.5 py-1 bg-white border border-slate-200 rounded font-bold disabled:opacity-40 transition hover:bg-slate-50">-2</button>
+                                        <button onClick={addSystem} class="px-2.5 py-1 bg-white border border-slate-200 rounded font-bold transition hover:bg-slate-50">+2</button>
+                                    </div>
+                                </div>
+
+                                <button onClick={handlePrint} class="w-full flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-black text-white font-extrabold py-2 rounded-lg text-xs transition">
+                                    <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print Sheet Music
+                                </button>
+                                <button onClick={triggerClearAllNotes} class="w-full flex items-center justify-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold py-2 rounded-lg text-xs transition">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear All Notes
+                                </button>
+                            </div>
+                        </aside>
+
+                        { }
+                        {/* Interactive Sheet Music Area */}
+                        <main class="lg:col-span-9 space-y-4">
+
+                            {/* Sheet Music Printable Card - Optimized for transparency in prints to save ink */}
+                            <div class="bg-white p-4 md:p-8 rounded-2xl border border-slate-200 shadow-sm print-layout print:border-none print:shadow-none print:bg-transparent print:p-0">
+
+                                {/* Score Heading */}
+                                <div class="text-center pb-4 border-b border-dashed border-slate-100 mb-6">
+                                    <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+                                        {songTitle || "Untitled Sheet"}
+                                    </h2>
+                                    <div class="flex justify-between items-center mt-2 text-xs text-slate-500 font-medium px-2">
+                                        <p>Tempo: <span class="font-bold text-slate-700">{tempo} BPM</span></p>
+                                        <p class="font-extrabold text-slate-800 text-[11px] bg-slate-100 px-2 py-0.5 rounded">{timeSigBeats} / {timeSigValue} Time</p>
+                                        <p>By: <span class="text-indigo-600 font-bold">{composer || "Me"}</span></p>
+                                    </div>
+                                </div>
+
+                                {/* Systems/Measure Blocks */}
+                                <div class="space-y-12 print:space-y-8">
+                                    {Array.from({ length: Math.ceil(measuresCount / 2) }).map((_, systemIdx) => {
+                                        const m1 = systemIdx * 2;
+                                        const m2 = systemIdx * 2 + 1;
+
+                                        return (
+                                            /* Removing grid gaps here to allow continuous visual layout of staves */
+                                            <div key={systemIdx} class="system-scroll-container pb-4 md:pb-0 print-system-row print:border-none flex flex-row w-full justify-stretch items-stretch gap-0">
+
+                                                {/* Measure 1 (Always contains the Clef drawing inside) */}
+                                                <div class="staff-container bg-transparent w-1/2 flex-grow flex-shrink-0 relative min-w-[340px] md:min-w-0">
+                                                    {renderMeasureSVG(m1)}
+                                                </div>
+
+                                                {/* Measure 2 */}
+                                                {m2 < measuresCount && (
+                                                    <div class="staff-container bg-transparent w-1/2 flex-grow flex-shrink-0 relative min-w-[340px] md:min-w-0">
+                                                        {renderMeasureSVG(m2)}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            { }
+                            {/* Context Popup Modal (Operates on top overlay) */}
+                            {isEditModalOpen && (() => {
+                                const activeNote = notes.find(n => n.id === selectedNoteId);
+                                if (!activeNote) return null;
+                                const pitch = getPitchInfo(activeNote.clef, activeNote.step);
+                                const color = NOTE_COLORS[pitch.name];
+
+                                return (
+                                    <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+                                        <div class="bg-white p-5 rounded-2xl shadow-2xl max-w-sm w-full border border-slate-200 space-y-4 animate-modal">
+
+                                            {/* Modal Header */}
+                                            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                                <div class="flex items-center gap-2.5">
+                                                    <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow" style={{ backgroundColor: color.hex }}>
+                                                        {pitch.name}
+                                                    </span>
+                                                    <div>
+                                                        <h4 class="text-xs font-bold uppercase text-slate-400 leading-none">Modify Placed Note</h4>
+                                                        <p class="text-sm font-extrabold text-slate-800 mt-1">Measure {activeNote.measureIndex + 1} • Pitch {pitch.name}{pitch.octave}</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => { setIsEditModalOpen(false); setSelectedNoteId(null); }}
+                                                    class="text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-1 rounded-full transition"
+                                                >
+                                                    <i data-lucide="x" class="w-4 h-4"></i>
+                                                </button>
+                                            </div>
+
+                                            {/* Note Action Utilities */}
+                                            <div class="space-y-4">
+
+                                                {/* Pitch controls stacked vertically */}
+                                                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                                    <span class="text-[10px] text-slate-400 font-extrabold uppercase block mb-1.5 tracking-wider">Pitch</span>
+                                                    <div class="flex flex-col gap-1.5 w-full">
+                                                        <button
+                                                            onClick={() => nudgePitch(1)}
+                                                            class="w-full py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-extrabold transition flex items-center justify-center shadow-sm active:scale-95 text-xl"
+                                                            title="Move Pitch Up"
+                                                        >
+                                                            ↑
+                                                        </button>
+                                                        <button
+                                                            onClick={() => nudgePitch(-1)}
+                                                            class="w-full py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-extrabold transition flex items-center justify-center shadow-sm active:scale-95 text-xl"
+                                                            title="Move Pitch Down"
+                                                        >
+                                                            ↓
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Placement controls arranged horizontally */}
+                                                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                                    <span class="text-[10px] text-slate-400 font-extrabold uppercase block mb-1.5 tracking-wider">Placement</span>
+                                                    <div class="flex items-center gap-2">
+                                                        <button
+                                                            onClick={() => shiftBeat(-1)}
+                                                            class="flex-grow py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-extrabold transition flex items-center justify-center shadow-sm active:scale-95 text-xl"
+                                                            title="Shift Left"
+                                                        >
+                                                            ←
+                                                        </button>
+                                                        <button
+                                                            onClick={() => shiftBeat(1)}
+                                                            class="flex-grow py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-extrabold transition flex items-center justify-center shadow-sm active:scale-95 text-xl"
+                                                            title="Shift Right"
+                                                        >
+                                                            →
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Accidentals with icon glyphs only */}
+                                                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                                    <span class="text-[10px] text-slate-400 font-extrabold uppercase block mb-1.5 tracking-wider">Accidental</span>
+                                                    <div class="flex items-center justify-center gap-3">
+                                                        <button
+                                                            onClick={() => updateNoteAccidental(activeNote.accidental === 'sharp' ? 'none' : 'sharp')}
+                                                            class={`w-12 h-10 flex items-center justify-center border rounded-lg text-2xl font-bold transition shadow-sm ${activeNote.accidental === 'sharp' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-800'}`}
+                                                            title="Sharp"
+                                                        >
+                                                            ♯
+                                                        </button>
+                                                        <button
+                                                            onClick={() => updateNoteAccidental(activeNote.accidental === 'flat' ? 'none' : 'flat')}
+                                                            class={`w-12 h-10 flex items-center justify-center border rounded-lg text-2xl font-bold transition shadow-sm ${activeNote.accidental === 'flat' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-800'}`}
+                                                            title="Flat"
+                                                        >
+                                                            ♭
+                                                        </button>
+                                                        <button
+                                                            onClick={() => updateNoteAccidental('none')}
+                                                            class={`w-12 h-10 flex items-center justify-center border rounded-lg text-2xl font-bold transition shadow-sm ${activeNote.accidental === 'none' ? 'bg-slate-200 border-slate-300 text-slate-800' : 'bg-white hover:bg-slate-100 border-slate-200 text-slate-400'}`}
+                                                            title="Natural"
+                                                        >
+                                                            ♮
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Change Note Duration */}
+                                                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                                    <span class="text-[10px] text-slate-400 font-extrabold uppercase block mb-1.5 tracking-wider">Note Value (Length)</span>
+                                                    <div class="grid grid-cols-4 gap-1">
+                                                        {[
+                                                            { dur: 8, label: 'Whole' },
+                                                            { dur: 4, label: 'Half' },
+                                                            { dur: 2, label: 'Quart' },
+                                                            { dur: 1, label: 'Eight' }
+                                                        ].map(item => (
+                                                            <button
+                                                                key={item.dur}
+                                                                onClick={() => updateNoteDuration(item.dur)}
+                                                                class={`py-1 rounded-lg text-[10px] font-extrabold border transition ${activeNote.duration === item.dur ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'}`}
+                                                            >
+                                                                {item.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Delete Option */}
+                                            <div class="flex gap-2 pt-2">
+                                                <button
+                                                    onClick={() => deleteNote(activeNote.id)}
+                                                    class="flex-grow bg-rose-50 hover:bg-rose-100 text-rose-600 font-extrabold py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5"
+                                                >
+                                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                                    Delete Note
+                                                </button>
+                                                <button
+                                                    onClick={() => { setIsEditModalOpen(false); setSelectedNoteId(null); }}
+                                                    class="flex-grow bg-slate-900 hover:bg-black text-white font-extrabold py-2 rounded-xl text-xs transition"
+                                                >
+                                                    Confirm
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Safe Custom UI Confirmation Modal */}
+                            {isClearConfirmOpen && (
+                                <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+                                    <div class="bg-white p-5 rounded-2xl shadow-2xl max-w-sm w-full border border-slate-200 space-y-4 animate-modal">
+                                        <div class="text-center">
+                                            <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-rose-100 text-rose-600 mb-3">
+                                                <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                                            </div>
+                                            <h3 class="text-lg font-bold text-slate-900">Clear All Notes</h3>
+                                            <p class="text-xs text-slate-500 mt-2">Are you sure you want to clear your current sheet music? This cannot be undone.</p>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <button
+                                                onClick={() => setIsClearConfirmOpen(false)}
+                                                class="flex-grow bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 rounded-xl text-xs transition"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={confirmClearAllNotes}
+                                                class="flex-grow bg-rose-600 hover:bg-rose-700 text-white font-extrabold py-2 rounded-xl text-xs transition"
+                                            >
+                                                Yes, Clear Sheet
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                </div>
+            );
+
+            // Complex rendering helper for individual Measure SVGs
+            function renderMeasureSVG(measureIdx) {
+                const measureNotes = notes.filter(n =>
+                    n.measureIndex === measureIdx &&
+                    (selectedStaffView === 'both' || n.clef === selectedStaffView)
+                );
+
+                const totalSubdivisions = getSubdivisions();
+
+                const isFirstMeasure = measureIdx % 2 === 0;
+                const leftPadding = isFirstMeasure ? 55 : 20;
+                const measureWidth = 350 - leftPadding;
+
+                // Absolute viewport mapping with safe vertical buffer padding boundaries to eliminate note clipping
+                const viewBoxWidth = 350;
+                const viewBoxY = selectedStaffView === 'bass' ? 110 : -10;
+                const viewBoxHeight = selectedStaffView === 'both' ? 240 : (selectedStaffView === 'treble' ? 110 : 120);
+
+                // Grid subdivisions vertical support helpers
+                const divisionLines = Array.from({ length: totalSubdivisions }).map((_, i) => {
+                    const stepWidth = measureWidth / totalSubdivisions;
+                    const x = leftPadding + (i * stepWidth);
+                    const isBeat = i % (totalSubdivisions / timeSigBeats) === 0;
+                    return (
+                        <line
+                            key={`div-${i}`}
+                            x1={x}
+                            y1="-10"
+                            x2={x}
+                            y2="230"
+                            stroke="#f1f5f9"
+                            strokeWidth={isBeat ? "1.5" : "0.5"}
+                            strokeDasharray={isBeat ? "none" : "2,2"}
+                            className="no-print"
+                        />
+                    );
+                });
+
+                // Generate ledger lines on active notes
+                const renderLedgerLines = (clef, step, noteX, noteY) => {
+                    const lines = [];
+                    const lineLength = 32; // Widened to extend clearly past note heads
+
+                    if (clef === 'treble') {
+                        if (step <= 0) { // Middle C (C4) and below
+                            for (let s = 0; s >= step; s -= 2) {
+                                const y = getNoteYPosition('treble', s);
+                                lines.push(<line key={`led-t-low-${s}`} x1={noteX - lineLength / 2} y1={y} x2={noteX + lineLength / 2} y2={y} className="ledger-line" />);
+                            }
+                        }
+                        if (step >= 12) { // A5 and above
+                            for (let s = 12; s <= step; s += 2) {
+                                const y = getNoteYPosition('treble', s);
+                                lines.push(<line key={`led-t-high-${s}`} x1={noteX - lineLength / 2} y1={y} x2={noteX + lineLength / 2} y2={y} className="ledger-line" />);
+                            }
+                        }
+                    } else {
+                        if (step >= 0) { // Middle C (C4) and above
+                            for (let s = 0; s <= step; s += 2) {
+                                const y = getNoteYPosition('bass', s);
+                                lines.push(<line key={`led-b-high-${s}`} x1={noteX - lineLength / 2} y1={y} x2={noteX + lineLength / 2} y2={y} className="ledger-line" />);
+                            }
+                        }
+                        if (step <= -12) { // E2 and below
+                            for (let s = -12; s >= step; s -= 2) {
+                                const y = getNoteYPosition('bass', s);
+                                lines.push(<line key={`led-b-low-${s}`} x1={noteX - lineLength / 2} y1={y} x2={noteX + lineLength / 2} y2={y} className="ledger-line" />);
+                            }
+                        }
+                    }
+                    return lines;
+                };
+
+                const stepWidth = measureWidth / totalSubdivisions;
+                const activePlayheadBeat = currentBeat % totalSubdivisions;
+                const playheadX = leftPadding + (activePlayheadBeat * stepWidth) + (stepWidth / 2);
+
+                return (
+                    <svg
+                        className="w-full relative select-none bg-white hover:bg-slate-50/20 transition cursor-pointer print:bg-transparent"
+                        viewBox={`0 ${viewBoxY} ${viewBoxWidth} ${viewBoxHeight}`}
+                        onMouseMove={(e) => handleMouseMove(e, measureIdx)}
+                        onMouseLeave={handleMouseLeave}
+                        onClick={(e) => handleMeasureTouchOrClick(e, measureIdx)}
+                    >
+                        {/* Treble staff lines (Y: 30, 40, 50, 60, 70) */}
+                        {selectedStaffView !== 'bass' && (
+                            <g>
+                                <line x1="0" y1="30" x2="350" y2="30" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="40" x2="350" y2="40" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="50" x2="350" y2="50" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="60" x2="350" y2="60" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="70" x2="350" y2="70" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                            </g>
+                        )}
+
+                        {/* Bass staff lines (Y: 150, 160, 170, 180, 190) */}
+                        {selectedStaffView !== 'treble' && (
+                            <g>
+                                <line x1="0" y1="150" x2="350" y2="150" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="160" x2="350" y2="160" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="170" x2="350" y2="170" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="180" x2="350" y2="180" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                                <line x1="0" y1="190" x2="350" y2="190" stroke="#1e293b" strokeWidth="1.2" className="staff-line" />
+                            </g>
+                        )}
+
+                        {/* Separator line for dual staffs */}
+                        {selectedStaffView === 'both' && (
+                            <line x1="0" y1="110" x2="350" y2="110" stroke="#f1f5f9" strokeWidth="2" className="no-print" />
+                        )}
+
+                        {/* Treble Clef: Correctly oriented right-side up with dot at bottom and loop at top */}
+                        {isFirstMeasure && selectedStaffView !== 'bass' && (
+                            <g transform="translate(10, 31) scale(0.032, 0.032)">
+                                <path d="M 592.10873,1275.9669 C 461.75172,1268.3902 328.65904,1186.6265 249.0601,1092.783 C 156.77394,983.97782 118.72592,836.04683 128.47199,714.56357 C 157.10277,357.61288 545.27831,146.63848 688.97108,-9.280262 C 785.15294,-113.64625 805.31643,-164.52308 826.79977,-218.19949 C 868.39181,-322.09965 875.09166,-443.8341 792.63375,-452.92251 C 713.90712,-461.59988 649.13737,-337.79201 620.20973,-253.17845 C 594.19587,-177.07331 576.90507,-100.71696 592.5563,13.979673 C 599.58954,65.50958 793.18636,1503.9125 796.45179,1526.2088 C 829.05589,1749.0255 701.63092,1841.2249 571.55248,1857.6251 C 290.65671,1893.038 200.52617,1607.5843 326.4212,1499.1719 C 423.34291,1415.7001 564.35026,1487.3615 556.73245,1624.5919 C 549.98693,1746.1391 430.80546,1749.7197 400.35244,1746.9429 C 447.10065,1830.7846 799.52998,1874.5871 745.41513,1495.7923 C 737.811,1442.5634 558.91549,90.842953 554.53112,60.595454 C 521.71238,-165.84753 516.71147,-345.08557 634.69182,-554.25141 C 678.24767,-631.46637 747.0821,-681.3156 780.87362,-674.7893 C 788.29962,-673.35526 795.69824,-670.62872 801.57144,-664.56827 C 892.07191,-571.31845 919.83494,-364.53202 909.9199,-245.74332 C 899.76736,-124.11391 894.1088,1.7993735 773.16902,148.63428 C 726.36601,205.45738 583.54553,330.63538 501.65851,402.55255 C 386.60107,503.59831 303.14756,591.85179 257.99323,698.31862 C 207.24886,817.97506 198.65826,968.6006 313.27268,1102.2505 C 379.20247,1177.7619 488.59222,1231.3424 580.65459,1232.4842 C 836.63719,1235.6628 911.39048,1109.4801 913.77904,966.58197 C 917.71126,731.28351 633.64596,642.32214 516.85762,804.10953 C 449.14212,897.92109 478.90552,996.66049 524.38411,1043.6371 C 539.99424,1059.7587 557.43121,1072.0395 573.92734,1078.8855 C 579.9056,1081.3654 593.96751,1087.9054 589.97593,1097.4779 C 586.6557,1105.4428 580.20702,1105.8904 574.33381,1105.1871 C 500.68573,1096.3544 419.13667,1025.958 399.0828,904.87212 C 369.86288,728.38801 525.6035,519.0349 747.9133,553.274 C 893.45572,575.68903 1028.5853,934.11946 1016.7338,934.11946 C 1006.5722,1133.9822 840.87996,1290.4262 592.10873,1275.9669 z" fill="#0f172a" />
+                            </g>
+                        )}
+
+                        {/* Bass Clef: Rendered right side up with dots perfectly flanking F3 line (Y=160) */}
+                        {isFirstMeasure && selectedStaffView !== 'treble' && (
+                            <g transform="translate(10, 147.5) scale(0.044, -0.044)">
+                                <path d="M567 -386c0,29,23,52,52,52s52,-23,52,-52s-23,-52,-52,-52s-52,23,-52,52zm0,250c0,29,23,52,52,52s52,-23,52,-52s-23,-52,-52,-52s-52,23,-52,52zm-323,136c171,0,292,-86,292,-248c0,-263,-264,-415,-517,-521c-2,-2,-5,-3,-8,-3c-6,0,-11,5,-11,11c0,3,1,6,3,8c203,118,415,265,415,494c0,121,-64,237,-174,237c-79,0,-138,-57,-164,-133c14,8,28,13,43,13c55,0,100,-45,100,-100c0,-58,-44,-107,-100,-107c-60,0,-112,48,-112,107c0,132,103,242,233,242z" fill="#0f172a" />
+                            </g>
+                        )}
+
+                        {/* Dotted grid lines */}
+                        {divisionLines}
+
+                        {/* End bar line */}
+                        <line
+                            x1="350"
+                            y1={selectedStaffView === 'bass' ? "140" : "15"}
+                            x2="350"
+                            y2={viewBoxHeight + viewBoxY - 15}
+                            stroke="#000000"
+                            strokeWidth="3"
+                            className="bar-line"
+                        />
+
+                        {/* Playhead line tracker */}
+                        {isPlaying && Math.floor(currentBeat / totalSubdivisions) === measureIdx && (
+                            <line
+                                x1={playheadX}
+                                y1="-10"
+                                x2={playheadX}
+                                y2="230"
+                                stroke="#4f46e5"
+                                strokeWidth="3"
+                                strokeOpacity="0.8"
+                                className="no-print"
+                            />
+                        )}
+
+                        { }
+                        {/* Hover Ghost Preview Note */}
+                        {hoverState.active && hoverState.measureIndex === measureIdx && (() => {
+                            const noteX = leftPadding + (hoverState.beat * stepWidth) + (stepWidth / 2);
+                            const noteY = getNoteYPosition(hoverState.clef, hoverState.step);
+                            const pitchObj = getPitchInfo(hoverState.clef, hoverState.step);
+                            const colorInfo = NOTE_COLORS[pitchObj.name];
+
+                            const stemUp = hoverState.step < (hoverState.clef === 'treble' ? 6 : -6);
+                            const stemLength = spacing * 3.5;
+
+                            return (
+                                <g className="opacity-45 pointer-events-none no-print">
+                                    <rect x={noteX - 16} y={noteY - 26} width="32" height="13" rx="3" fill="#1e293b" />
+                                    <text x={noteX} y={noteY - 16} fill="#ffffff" fontSize="9" fontWeight="bold" textAnchor="middle">
+                                        {pitchObj.name}{pitchObj.octave}
+                                    </text>
+
+                                    {renderLedgerLines(hoverState.clef, hoverState.step, noteX, noteY)}
+
+                                    {/* Ghost Note heads */}
+                                    {selectedDuration === 8 ? (
+                                        <g>
+                                            {/* Clean simple open oval with solid dark bold text inside */}
+                                            <ellipse cx={noteX} cy={noteY} rx="11" ry="7" fill="#ffffff" stroke={colorInfo.hex} strokeWidth="3" transform={`rotate(-20 ${noteX} ${noteY})`} />
+                                            <text x={noteX} y={noteY + 3.5} fill="#0f172a" fontSize="10.5" fontWeight="900" textAnchor="middle" className="select-none pointer-events-none font-sans font-extrabold">{pitchObj.name}</text>
+                                        </g>
+                                    ) : (
+                                        <g>
+                                            <ellipse
+                                                cx={noteX}
+                                                cy={noteY}
+                                                rx="10"
+                                                ry="7"
+                                                fill={selectedDuration > 2 ? "#ffffff" : colorInfo.hex}
+                                                stroke={colorInfo.hex}
+                                                strokeWidth="2.2"
+                                                transform={`rotate(-25, ${noteX}, ${noteY})`}
+                                            />
+                                            <text
+                                                x={noteX}
+                                                y={noteY + 3}
+                                                fill={selectedDuration > 2 ? "#0f172a" : colorInfo.text}
+                                                fontSize="9.5"
+                                                fontWeight="bold"
+                                                textAnchor="middle"
+                                                className="font-bold"
+                                            >
+                                                {pitchObj.name}
+                                            </text>
+                                        </g>
+                                    )}
+
+                                    {selectedDuration <= 4 && (
+                                        <line
+                                            x1={stemUp ? noteX + 9.5 : noteX - 9.5}
+                                            y1={noteY}
+                                            x2={stemUp ? noteX + 9.5 : noteX - 9.5}
+                                            y2={stemUp ? noteY - stemLength : noteY + stemLength}
+                                            stroke="#000000"
+                                            strokeWidth="2"
+                                        />
+                                    )}
+                                </g>
+                            );
+                        })()}
+
+                        {/* Placed Professional Engraved Notes */}
+                        {measureNotes.map((note) => {
+                            const noteX = leftPadding + (note.beat * stepWidth) + (stepWidth / 2);
+                            const noteY = getNoteYPosition(note.clef, note.step);
+                            const pitchObj = getPitchInfo(note.clef, note.step);
+                            const colorInfo = NOTE_COLORS[pitchObj.name];
+
+                            const isSelected = note.id === selectedNoteId;
+                            const stemUp = note.step < (note.clef === 'treble' ? 6 : -6);
+                            const stemLength = spacing * 3.5;
+
+                            return (
+                                <g
+                                    key={note.id}
+                                    className="group"
+                                    onTouchStart={(e) => handleNoteTouchStart(e, note)}
+                                    onTouchEnd={(e) => handleNoteTouchEnd(e, note)}
+                                    onMouseDown={(e) => handleNoteTouchStart(e, note)}
+                                    onMouseUp={(e) => handleNoteTouchEnd(e, note)}
+                                >
+                                    {/* Touch alignment safety ring */}
+                                    <circle cx={noteX} cy={noteY} r="18" fill="transparent" className="no-print cursor-pointer" />
+
+                                    {isSelected && (
+                                        <circle cx={noteX} cy={noteY} r="15" fill="none" stroke="#4f46e5" strokeWidth="2.5" strokeDasharray="3,3" className="no-print animate-pulse" />
+                                    )}
+
+                                    {/* Render Ledger lines underneath head */}
+                                    {renderLedgerLines(note.clef, note.step, noteX, noteY)}
+
+                                    {/* Accidentals */}
+                                    {note.accidental && note.accidental !== 'none' && (
+                                        <text
+                                            x={noteX - 16}
+                                            y={noteY + 5}
+                                            fill="#000000"
+                                            fontSize="14"
+                                            fontWeight="extrabold"
+                                            textAnchor="middle"
+                                            className="select-none pointer-events-none print:fill-black"
+                                        >
+                                            {note.accidental === 'sharp' ? '♯' : '♭'}
+                                        </text>
+                                    )}
+
+                                    {/* Whole notes styled as beautiful single open ovals with robust pitch contrasts */}
+                                    {note.duration === 8 ? (
+                                        <g>
+                                            <ellipse cx={noteX} cy={noteY} rx="11" ry="7" fill="#ffffff" stroke={colorInfo.hex} strokeWidth="3.2" transform={`rotate(-20 ${noteX} ${noteY})`} />
+                                            <text x={noteX} y={noteY + 3.5} fill="#0f172a" fontSize="10.5" fontWeight="900" textAnchor="middle" className="select-none pointer-events-none font-sans font-extrabold">{pitchObj.name}</text>
+                                        </g>
+                                    ) : (
+                                        <g>
+                                            <ellipse
+                                                cx={noteX}
+                                                cy={noteY}
+                                                rx="10"
+                                                ry="7"
+                                                fill={note.duration > 2 ? "#ffffff" : colorInfo.hex}
+                                                stroke={colorInfo.hex}
+                                                strokeWidth="2.2"
+                                                transform={`rotate(-25, ${noteX}, ${noteY})`}
+                                                className="shadow-sm transition group-hover:brightness-95"
+                                            />
+                                            <text
+                                                x={noteX}
+                                                y={noteY + 3}
+                                                fill={note.duration > 2 ? "#0f172a" : colorInfo.text}
+                                                fontSize="9.5"
+                                                fontWeight="extrabold"
+                                                textAnchor="middle"
+                                                className="select-none pointer-events-none font-extrabold"
+                                            >
+                                                {pitchObj.name}
+                                            </text>
+                                        </g>
+                                    )}
+
+                                    {/* Note Stem lines */}
+                                    {note.duration <= 4 && (
+                                        <line
+                                            x1={stemUp ? noteX + 9.5 : noteX - 9.5}
+                                            y1={noteY}
+                                            x2={stemUp ? noteX + 9.5 : noteX - 9.5}
+                                            y2={stemUp ? noteY - stemLength : noteY + stemLength}
+                                            stroke="#000000"
+                                            strokeWidth="2"
+                                        />
+                                    )}
+
+                                    {/* Flags for Eighth Notes */}
+                                    {note.duration === 1 && (
+                                        <g transform={`translate(${stemUp ? noteX + 9.5 : noteX - 9.5}, ${stemUp ? noteY - stemLength : noteY + stemLength}) scale(0.35)`}>
+                                            <path
+                                                d={stemUp
+                                                    ? "M 0 0 C 10 15, 20 25, 20 40 C 20 50, 10 70, 0 80 C 5 70, 10 50, 10 40 C 10 25, 0 10, -5 0 Z"
+                                                    : "M 0 0 C 10 -15, 20 -25, 20 -40 C 20 -50, 10 -70, 0 -80 C 5 -70, 10 -50, 10 -40 C 10 -25, 0 -10, -5 0 Z"
+                                                }
+                                                fill="#000000"
+                                            />
+                                        </g>
+                                    )}
+                                </g>
+                            );
+                        })}
+                    </svg>
+                );
+            }
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById("root"));
+        root.render(<App />);
+
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons();
+                }
+            }, 500);
+        });
+    </script>
+</body>
+
+</html>
