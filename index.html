@@ -901,7 +901,7 @@
                                         max="12"
                                         value={timeSigBeats}
                                         onChange={(e) => {
-                                            setTimeSigBeats(Math.max(1, parseInt(e.target.value) || 4));
+                                            setTimeSigBeats(Math.max(1, parseInt(e.target.value)));
                                             setSelectedNoteId(null);
                                         }}
                                         class="w-8 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-800 p-0.5"
@@ -915,7 +915,7 @@
                                         step="2"
                                         value={timeSigValue}
                                         onChange={(e) => {
-                                            setTimeSigValue(Math.max(2, parseInt(e.target.value) || 4));
+                                            setTimeSigValue(Math.max(2, parseInt(e.target.value)));
                                             setSelectedNoteId(null);
                                         }}
                                         class="w-8 bg-white border border-slate-200 rounded text-center text-xs font-bold text-slate-800 p-0.5"
