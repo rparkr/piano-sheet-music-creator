@@ -815,6 +815,16 @@
                 setSelectedNoteId(null);
                 setIsEditModalOpen(false);
                 setTimeout(() => {
+                    const originalTitle = document.title;
+                    document.title = songTitle || "Untitled Sheet";
+                    const printMq = window.matchMedia('print');
+                    const restoreTitle = (e) => {
+                        if (!e.matches) {
+                            document.title = originalTitle;
+                            printMq.removeEventListener('change', restoreTitle);
+                        }
+                    };
+                    printMq.addEventListener('change', restoreTitle);
                     window.print();
                 }, 100);
             };
