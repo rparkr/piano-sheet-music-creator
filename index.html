@@ -128,6 +128,24 @@
                 stroke: #000000 !important;
                 stroke-width: 3px !important;
             }
+
+            /* Preserve exact SVG colors when printing */
+            svg, svg * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            body.print-keyboard-only-active .score-heading-block,
+            body.print-keyboard-only-active .score-systems-block {
+                display: none !important;
+            }
+
+            body.print-keyboard-only-active .keyboard-diagram-section {
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+                padding-top: 2rem !important;
+            }
         }
     </style>
 </head>
@@ -153,6 +171,118 @@
             'A': { hex: '#6366F1', text: '#FFFFFF', light: '#EEF2FF', border: '#4F46E5' },
             'B': { hex: '#EC4899', text: '#FFFFFF', light: '#FDF2F8', border: '#DB2777' }
         };
+
+        function PianoKeyboardDiagram() {
+            const keys = [
+                { note: 'A3', name: 'A3', isColored: false, bg: '#FFFFFF', text: '#64748B' },
+                { note: 'B3', name: 'B3', isColored: false, bg: '#FFFFFF', text: '#64748B' },
+                { note: 'C4', name: 'C',  isColored: true,  bg: NOTE_COLORS['C'].hex, text: NOTE_COLORS['C'].text },
+                { note: 'D4', name: 'D',  isColored: true,  bg: NOTE_COLORS['D'].hex, text: NOTE_COLORS['D'].text },
+                { note: 'E4', name: 'E',  isColored: true,  bg: NOTE_COLORS['E'].hex, text: NOTE_COLORS['E'].text },
+                { note: 'F4', name: 'F',  isColored: true,  bg: NOTE_COLORS['F'].hex, text: NOTE_COLORS['F'].text },
+                { note: 'G4', name: 'G',  isColored: true,  bg: NOTE_COLORS['G'].hex, text: NOTE_COLORS['G'].text },
+                { note: 'A4', name: 'A',  isColored: true,  bg: NOTE_COLORS['A'].hex, text: NOTE_COLORS['A'].text },
+                { note: 'B4', name: 'B',  isColored: true,  bg: NOTE_COLORS['B'].hex, text: NOTE_COLORS['B'].text },
+                { note: 'C5', name: 'C5', isColored: false, bg: '#FFFFFF', text: '#64748B' },
+                { note: 'D5', name: 'D5', isColored: false, bg: '#FFFFFF', text: '#64748B' }
+            ];
+
+            const wWidth = 34;
+            const wHeight = 98;
+            const bWidth = 20;
+            const bHeight = 60;
+            const totalWidth = keys.length * wWidth; // 374
+            const totalHeight = wHeight + 28;
+
+            const blackKeyAfterIndex = [0, 2, 3, 5, 6, 7, 9];
+
+            return (
+                <div class="flex flex-col items-center justify-center py-2 select-none">
+                    <div class="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 print:text-black flex items-center gap-1.5">
+                        <span>Keyboard Layout Reference</span>
+                        <span class="text-[9px] font-normal text-slate-400 print:text-slate-600">(Middle Octave C4–B4)</span>
+                    </div>
+                    <svg
+                        viewBox={`0 0 ${totalWidth + 6} ${totalHeight}`}
+                        class="max-w-full h-auto drop-shadow-sm print:drop-shadow-none"
+                        style={{ width: `${totalWidth}px` }}
+                    >
+                        <g transform="translate(3, 22)">
+                            {/* Accent indicator line/bracket for colored octave */}
+                            <path
+                                d={`M ${2 * wWidth + 2} -4 L ${2 * wWidth + 2} -10 L ${9 * wWidth - 2} -10 L ${9 * wWidth - 2} -4`}
+                                fill="none"
+                                stroke="#6366F1"
+                                strokeWidth="1.5"
+                                strokeDasharray="3,3"
+                                className="print:stroke-slate-700"
+                            />
+                            <text
+                                x={(2 * wWidth + 9 * wWidth) / 2}
+                                y="-13"
+                                fill="#6366F1"
+                                fontSize="8.5"
+                                fontWeight="800"
+                                textAnchor="middle"
+                                className="print:fill-slate-700"
+                            >
+                                Octave 4 Note Colors
+                            </text>
+
+                            {/* White Keys */}
+                            {keys.map((k, idx) => {
+                                const x = idx * wWidth;
+                                return (
+                                    <g key={k.note}>
+                                        <rect
+                                            x={x}
+                                            y={0}
+                                            width={wWidth}
+                                            height={wHeight}
+                                            fill={k.bg}
+                                            stroke="#1e293b"
+                                            strokeWidth="1.5"
+                                            rx="3"
+                                            ry="3"
+                                        />
+                                        <text
+                                            x={x + wWidth / 2}
+                                            y={wHeight - 10}
+                                            fill={k.text}
+                                            fontSize={k.isColored ? "13" : "10"}
+                                            fontWeight={k.isColored ? "900" : "700"}
+                                            textAnchor="middle"
+                                            className="select-none font-sans"
+                                        >
+                                            {k.name}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+
+                            {/* Black Keys */}
+                            {blackKeyAfterIndex.map((wIdx) => {
+                                const x = (wIdx + 1) * wWidth - (bWidth / 2);
+                                return (
+                                    <rect
+                                        key={`bk-${wIdx}`}
+                                        x={x}
+                                        y={0}
+                                        width={bWidth}
+                                        height={bHeight}
+                                        fill="#0f172a"
+                                        stroke="#000000"
+                                        strokeWidth="1"
+                                        rx="2"
+                                        ry="2"
+                                    />
+                                );
+                            })}
+                        </g>
+                    </svg>
+                </div>
+            );
+        }
 
         // Pitch Map dictionary mapping note names, octave positions, and MIDI-based frequency
         const DIATONIC_STEPS = {
@@ -269,6 +399,9 @@
             const [tempo, setTempo] = useState(100);
             const [volume, setVolume] = useState(0.8);
 
+            const [showPrintedKeyboard, setShowPrintedKeyboard] = useState(true);
+            const [isPrintingKeyboardOnly, setIsPrintingKeyboardOnly] = useState(false);
+
             const [selectedNoteId, setSelectedNoteId] = useState(null);
             const [isEditModalOpen, setIsEditModalOpen] = useState(false);
             const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
@@ -324,6 +457,7 @@
                         setTimeSigValue(parsed.beatValue || 4);
                         setNotes(parsed.notes || []);
                         setMeasuresCount(parsed.measuresCount || 4);
+                        setShowPrintedKeyboard(parsed.showPrintedKeyboard !== undefined ? parsed.showPrintedKeyboard : true);
                     } catch (e) {
                         console.error("Could not load active draft, defaulting...", e);
                         loadDemoSong('maryLamb');
@@ -350,10 +484,11 @@
                     beats: timeSigBeats,
                     beatValue: timeSigValue,
                     notes,
-                    measuresCount
+                    measuresCount,
+                    showPrintedKeyboard
                 };
                 localStorage.setItem('colorful_sheet_music_active_song', JSON.stringify(activeDraftData));
-            }, [songId, songTitle, composer, tempo, timeSigBeats, timeSigValue, notes, measuresCount]);
+            }, [songId, songTitle, composer, tempo, timeSigBeats, timeSigValue, notes, measuresCount, showPrintedKeyboard]);
 
             const showToast = (message, type = 'success') => {
                 setToast({ message, type });
@@ -829,6 +964,29 @@
                 }, 100);
             };
 
+            const handlePrintKeyboardOnly = () => {
+                setSelectedNoteId(null);
+                setIsEditModalOpen(false);
+                setIsPrintingKeyboardOnly(true);
+                document.body.classList.add('print-keyboard-only-active');
+
+                setTimeout(() => {
+                    const originalTitle = document.title;
+                    document.title = (songTitle || "Sheet Music") + " - Keyboard Reference";
+                    const printMq = window.matchMedia('print');
+                    const restorePrint = (e) => {
+                        if (!e.matches) {
+                            document.title = originalTitle;
+                            document.body.classList.remove('print-keyboard-only-active');
+                            setIsPrintingKeyboardOnly(false);
+                            printMq.removeEventListener('change', restorePrint);
+                        }
+                    };
+                    printMq.addEventListener('change', restorePrint);
+                    window.print();
+                }, 100);
+            };
+
             const addSystem = () => {
                 setMeasuresCount(prev => prev + 2);
             };
@@ -1112,6 +1270,28 @@
 
                             {/* Sheet Utilities settings */}
                             <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                                    <span>Keyboard Reference</span>
+                                    <i data-lucide="keyboard" class="w-3.5 h-3.5 text-indigo-500"></i>
+                                </h3>
+                                <label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={showPrintedKeyboard}
+                                        onChange={(e) => setShowPrintedKeyboard(e.target.checked)}
+                                        class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                    <span>Include keyboard on print</span>
+                                </label>
+                                <button
+                                    onClick={handlePrintKeyboardOnly}
+                                    class="w-full flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 px-3 rounded-lg text-xs transition"
+                                >
+                                    <i data-lucide="printer" class="w-3.5 h-3.5"></i> Print Keyboard Layout Only
+                                </button>
+                            </div>
+
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
                                 <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Sheet Management</h3>
                                 <div class="flex items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                                     <span class="font-extrabold text-slate-600">Total Measures: {measuresCount}</span>
@@ -1136,8 +1316,15 @@
                             {/* Sheet Music Printable Card - Optimized for transparency in prints to save ink */}
                             <div class="bg-white p-4 md:p-8 rounded-2xl border border-slate-200 shadow-sm print-layout print:border-none print:shadow-none print:bg-transparent print:p-0">
 
+                                {/* Keyboard Diagram Section (Top of 1st Printed Page) */}
+                                {(showPrintedKeyboard || isPrintingKeyboardOnly) && (
+                                    <div class="keyboard-diagram-section mb-6 pb-2 border-b border-slate-100 print:border-slate-200">
+                                        <PianoKeyboardDiagram />
+                                    </div>
+                                )}
+
                                 {/* Score Heading */}
-                                <div class="text-center pb-4 border-b border-dashed border-slate-100 mb-6">
+                                <div class="score-heading-block text-center pb-4 border-b border-dashed border-slate-100 mb-6">
                                     <h2 class="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
                                         {songTitle || "Untitled Sheet"}
                                     </h2>
@@ -1149,7 +1336,7 @@
                                 </div>
 
                                 {/* Systems/Measure Blocks */}
-                                <div class="space-y-12 print:space-y-8">
+                                <div class="score-systems-block space-y-12 print:space-y-8">
                                     {Array.from({ length: Math.ceil(measuresCount / 2) }).map((_, systemIdx) => {
                                         const m1 = systemIdx * 2;
                                         const m2 = systemIdx * 2 + 1;
