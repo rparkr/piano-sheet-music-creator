@@ -446,6 +446,10 @@
             const [isPlaying, setIsPlaying] = useState(false);
             const [currentBeat, setCurrentBeat] = useState(-1);
 
+            // Undo/Redo stacks
+            const [undoStack, setUndoStack] = useState([]);
+            const [redoStack, setRedoStack] = useState([]);
+
             // Toasts & Storage
             const [savedSongs, setSavedSongs] = useState([]);
             const [toast, setToast] = useState(null);
@@ -455,6 +459,39 @@
             const touchTimerRef = useRef(null);
             const isLongPressTriggered = useRef(false);
             const fileInputRef = useRef(null);
+
+            // Undo/Redo helpers
+            const snapNotes = (ns) => ns.map(n => ({ ...n }));
+
+            const pushUndo = () => {
+                setUndoStack(prev => {
+                    const next = [...prev, snapNotes(notes)];
+                    if (next.length > 50) next.shift();
+                    return next;
+                });
+                setRedoStack([]);
+            };
+
+            const handleUndo = () => {
+                if (undoStack.length === 0) return;
+                const prevNotes = undoStack[undoStack.length - 1];
+                setRedoStack(prev => [...prev, snapNotes(notes)]);
+                setUndoStack(prev => prev.slice(0, -1));
+                setNotes(prevNotes);
+            };
+
+            const handleRedo = () => {
+                if (redoStack.length === 0) return;
+                const nextNotes = redoStack[redoStack.length - 1];
+                setUndoStack(prev => [...prev, snapNotes(notes)]);
+                setRedoStack(prev => prev.slice(0, -1));
+                setNotes(nextNotes);
+            };
+
+            const handleUndoRef = useRef(handleUndo);
+            const handleRedoRef = useRef(handleRedo);
+            handleUndoRef.current = handleUndo;
+            handleRedoRef.current = handleRedo;
 
             const [hoverState, setHoverState] = useState({
                 measureIndex: null,
@@ -508,7 +545,24 @@
                 if (typeof lucide !== 'undefined') {
                     lucide.createIcons();
                 }
-            }, [isPlaying, isEditModalOpen, isClearConfirmOpen, isLoadModalOpen, savedSongs.length, toast]);
+            }, [isPlaying, isEditModalOpen, isClearConfirmOpen, isLoadModalOpen, savedSongs.length, toast, undoStack.length, redoStack.length]);
+
+            // Keyboard shortcuts: Ctrl+Z / Ctrl+Y for Undo/Redo
+            useEffect(() => {
+                const onKeyDown = (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        if (e.key === 'z' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleUndoRef.current();
+                        } else if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) {
+                            e.preventDefault();
+                            handleRedoRef.current();
+                        }
+                    }
+                };
+                document.addEventListener('keydown', onKeyDown);
+                return () => document.removeEventListener('keydown', onKeyDown);
+            }, []);
 
             // Auto-save active draft to LocalStorage whenever notes/attributes change
             useEffect(() => {
@@ -694,6 +748,7 @@
                         playSynthNote(pitchObj.freq, durationMs);
                     }
 
+                    pushUndo();
                     setNotes([...notes, newNote]);
                 }
             };
@@ -720,6 +775,7 @@
             };
 
             const deleteNote = (noteId) => {
+                pushUndo();
                 setNotes(prev => prev.filter(n => n.id !== noteId));
                 setIsEditModalOpen(false);
                 setSelectedNoteId(null);
@@ -727,6 +783,7 @@
 
             const nudgePitch = (direction) => {
                 if (!selectedNoteId) return;
+                pushUndo();
                 setNotes(prev => prev.map(n => {
                     if (n.id !== selectedNoteId) return n;
 
@@ -747,6 +804,7 @@
 
             const shiftBeat = (direction) => {
                 if (!selectedNoteId) return;
+                pushUndo();
                 setNotes(prev => prev.map(n => {
                     if (n.id !== selectedNoteId) return n;
 
@@ -776,6 +834,7 @@
 
             const updateNoteDuration = (duration) => {
                 if (!selectedNoteId) return;
+                pushUndo();
                 setNotes(prev => prev.map(n => {
                     if (n.id !== selectedNoteId) return n;
                     return { ...n, duration };
@@ -784,6 +843,7 @@
 
             const updateNoteAccidental = (accidental) => {
                 if (!selectedNoteId) return;
+                pushUndo();
                 setNotes(prev => prev.map(n => {
                     if (n.id !== selectedNoteId) return n;
                     const pitchObj = getPitchInfo(n.clef, n.step);
@@ -852,6 +912,7 @@
                     setTempo(song.tempo);
                     setTimeSigBeats(song.beats || 4);
                     setTimeSigValue(song.beatValue || 4);
+                    pushUndo();
                     setNotes(song.notes);
                     const maxMeasure = Math.max(...song.notes.map(n => n.measureIndex), 0);
                     setMeasuresCount(Math.max(4, Math.ceil((maxMeasure + 1) / 2) * 2));
@@ -907,6 +968,7 @@
                 setTempo(loadedSong.tempo);
                 setTimeSigBeats(loadedSong.beats);
                 setTimeSigValue(loadedSong.beatValue);
+                pushUndo();
                 setNotes(loadedSong.notes);
                 setMeasuresCount(loadedSong.measuresCount || 4);
                 setSelectedNoteId(null);
@@ -967,6 +1029,7 @@
                         setTempo(parsed.tempo || 100);
                         setTimeSigBeats(parsed.beats || 4);
                         setTimeSigValue(parsed.beatValue || 4);
+                        pushUndo();
                         setNotes(parsed.notes || []);
                         setMeasuresCount(parsed.measuresCount || 4);
                         setSelectedNoteId(null);
@@ -987,6 +1050,7 @@
             };
 
             const confirmClearAllNotes = () => {
+                pushUndo();
                 setNotes([]);
                 setSelectedNoteId(null);
                 setIsClearConfirmOpen(false);
@@ -1042,6 +1106,7 @@
                 if (measuresCount > 2) {
                     const newCount = measuresCount - 2;
                     setMeasuresCount(newCount);
+                    pushUndo();
                     setNotes(notes.filter(n => n.measureIndex < newCount));
                     setSelectedNoteId(null);
                 }
@@ -1175,6 +1240,26 @@
                                         </button>
                                     ))}
                                 </div>
+                            </div>
+
+                            <div class="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
+                                <button
+                                    onClick={handleUndo}
+                                    disabled={undoStack.length === 0}
+                                    class={`p-1.5 rounded-md transition ${undoStack.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-white hover:text-indigo-600'}`}
+                                    title="Undo (Ctrl+Z)"
+                                >
+                                    <i data-lucide="undo-2" class="w-4 h-4"></i>
+                                </button>
+                                <span class="w-px h-5 bg-slate-200"></span>
+                                <button
+                                    onClick={handleRedo}
+                                    disabled={redoStack.length === 0}
+                                    class={`p-1.5 rounded-md transition ${redoStack.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-white hover:text-indigo-600'}`}
+                                    title="Redo (Ctrl+Y)"
+                                >
+                                    <i data-lucide="redo-2" class="w-4 h-4"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
