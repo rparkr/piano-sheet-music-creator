@@ -846,7 +846,7 @@
             const loadDemoSong = (songKey) => {
                 const song = DEMO_SONGS[songKey];
                 if (song) {
-                    setSongId(song.id);
+                    setSongId("");
                     setSongTitle(song.title);
                     setComposer(song.composer);
                     setTempo(song.tempo);
@@ -861,9 +861,8 @@
             };
 
             const handleSaveToBrowser = () => {
-                const activeId = songId || "song_" + Date.now();
                 const songToSave = {
-                    id: activeId,
+                    id: "",
                     title: songTitle.trim() || "Untitled Sheet",
                     composer: composer.trim() || "Composer",
                     tempo,
@@ -874,16 +873,28 @@
                     savedAt: Date.now()
                 };
 
-                const existingIndex = savedSongs.findIndex(s => s.id === activeId);
                 let updatedLibrary = [...savedSongs];
+                let savedId = null;
 
-                if (existingIndex > -1) {
-                    updatedLibrary[existingIndex] = songToSave;
-                } else {
+                if (songId) {
+                    const existingIndex = savedSongs.findIndex(s => s.id === songId);
+                    if (existingIndex > -1) {
+                        const existingSong = savedSongs[existingIndex];
+                        if (existingSong.title === songToSave.title) {
+                            songToSave.id = songId;
+                            updatedLibrary[existingIndex] = songToSave;
+                            savedId = songId;
+                        }
+                    }
+                }
+
+                if (!savedId) {
+                    savedId = "song_" + Date.now();
+                    songToSave.id = savedId;
                     updatedLibrary.push(songToSave);
                 }
 
-                setSongId(activeId);
+                setSongId(savedId);
                 setSavedSongs(updatedLibrary);
                 localStorage.setItem('colorful_sheet_music_saved_songs', JSON.stringify(updatedLibrary));
                 showToast(`"${songToSave.title}" saved to local browser storage!`, 'success');
