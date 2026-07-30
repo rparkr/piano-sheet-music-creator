@@ -459,6 +459,18 @@
             const touchTimerRef = useRef(null);
             const isLongPressTriggered = useRef(false);
             const fileInputRef = useRef(null);
+            const [showTextInput, setShowTextInput] = useState(false);
+            const [textDrafts, setTextDrafts] = useState({});
+            const [isSyntaxHelpOpen, setIsSyntaxHelpOpen] = useState(false);
+            const [parserWarnings, setParserWarnings] = useState([]);
+            const focusedTextarea = useRef(null);
+            const parseTimerRef = useRef(null);
+
+            // Latest-value refs for callbacks
+            const notesRef = useRef(notes);
+            notesRef.current = notes;
+            const selectedDurationRef = useRef(selectedDuration);
+            selectedDurationRef.current = selectedDuration;
 
             // Undo/Redo helpers
             const snapNotes = (ns) => ns.map(n => ({ ...n }));
@@ -545,7 +557,7 @@
                 if (typeof lucide !== 'undefined') {
                     lucide.createIcons();
                 }
-            }, [isPlaying, isEditModalOpen, isClearConfirmOpen, isLoadModalOpen, savedSongs.length, toast, undoStack.length, redoStack.length]);
+            }, [isPlaying, isEditModalOpen, isClearConfirmOpen, isLoadModalOpen, savedSongs.length, toast, undoStack.length, redoStack.length, showTextInput, parserWarnings.length]);
 
             // Keyboard shortcuts: Ctrl+Z / Ctrl+Y for Undo/Redo
             useEffect(() => {
@@ -853,6 +865,99 @@
                 }));
             };
 
+            // --- Text input handlers ---
+
+            const syncTextDraftsFromNotes = () => {
+                if (!showTextInput) return;
+                const totalSystems = Math.ceil(measuresCount / 2);
+                const subdivisions = getSubdivisions();
+                setTextDrafts(prev => {
+                    const next = { ...prev };
+                    for (let sys = 0; sys < totalSystems; sys++) {
+                        const m1 = sys * 2;
+                        const m2 = sys * 2 + 1;
+                        const measures = m2 < measuresCount ? [m1, m2] : [m1];
+                        ['treble', 'bass'].forEach(clef => {
+                            const key = `${sys}_${clef}`;
+                            if (focusedTextarea.current !== key) {
+                                next[key] = serializeNotesToText(notesRef.current, clef, measures, subdivisions);
+                            }
+                        });
+                    }
+                    return next;
+                });
+            };
+
+            useEffect(() => {
+                if (showTextInput) {
+                    syncTextDraftsFromNotes();
+                }
+            }, [notes, measuresCount, timeSigBeats, timeSigValue, showTextInput]);
+
+            useEffect(() => {
+                return () => {
+                    if (parseTimerRef.current) clearTimeout(parseTimerRef.current);
+                };
+            }, []);
+
+            const handleTextChange = (systemIdx, clef, text) => {
+                const key = `${systemIdx}_${clef}`;
+                setTextDrafts(prev => ({ ...prev, [key]: text }));
+            };
+
+            const handleTextFocus = (key) => {
+                focusedTextarea.current = key;
+            };
+
+            const handleTextBlur = (systemIdx, clef) => {
+                focusedTextarea.current = null;
+                handleApply(systemIdx, clef);
+            };
+
+            const handleApply = (systemIdx, clef) => {
+                const key = `${systemIdx}_${clef}`;
+                const m1 = systemIdx * 2;
+                const m2 = systemIdx * 2 + 1;
+                const measures = m2 < measuresCount ? [m1, m2] : [m1];
+                const subdivisions = getSubdivisions();
+
+                const draft = (textDrafts[key] || '').trim();
+
+                if (!draft) {
+                    setNotes(prev => prev.filter(n =>
+                        !(measures.includes(n.measureIndex) && n.clef === clef)
+                    ));
+                    setTextDrafts(prev => ({ ...prev, [key]: '' }));
+                    return;
+                }
+
+                const { notes: parsedNotes, warnings } = parseTextToNotes(draft, clef, measures, selectedDurationRef.current);
+
+                if (warnings.length > 0) {
+                    setParserWarnings(warnings);
+                    return;
+                }
+
+                const serialized = serializeNotesToText(parsedNotes, clef, measures, subdivisions);
+                setTextDrafts(prev => ({ ...prev, [key]: serialized }));
+
+                setNotes(prev => {
+                    const filtered = prev.filter(n =>
+                        !(measures.includes(n.measureIndex) && n.clef === clef)
+                    );
+                    return [...filtered, ...parsedNotes];
+                });
+            };
+
+            const handleTextKeyDown = (systemIdx, clef, e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleApply(systemIdx, clef);
+                }
+            };
+
+            // --- End text input handlers ---
+
             useEffect(() => {
                 if (isPlaying) {
                     const totalSubs = getSubdivisions();
@@ -902,6 +1007,192 @@
                 if (!stepObj) return { name: 'C', octave: 4, freq: 261.63 };
                 return stepObj;
             };
+
+            // --- Text note input helpers ---
+
+            const getStepFromPitch = (clef, noteName, octave) => {
+                const entry = DIATONIC_STEPS[clef].find(p => p.name === noteName && p.octave === octave);
+                return entry ? entry.step : null;
+            };
+
+            const convertUserDuration = (denominator) => {
+                if (!denominator) return null;
+                const mapping = { 1: 8, 2: 4, 4: 2, 8: 1 };
+                return mapping[denominator] || null;
+            };
+
+            const convertInternalDuration = (duration) => {
+                const mapping = { 8: 1, 2: 4, 4: 2, 1: 8 };
+                return mapping[duration] || 4;
+            };
+
+            const serializeNotesToText = (notes, clef, measures, subdivisions) => {
+                const measureTexts = [];
+                for (const measureIdx of measures) {
+                    const mNotes = notes.filter(n => n.measureIndex === measureIdx && n.clef === clef);
+                    const beats = {};
+                    mNotes.forEach(n => {
+                        if (!beats[n.beat]) beats[n.beat] = [];
+                        beats[n.beat].push(n);
+                    });
+                    const tokens = [];
+                    for (let beat = 0; beat < subdivisions; beat++) {
+                        if (beats[beat]) {
+                            const noteTokens = beats[beat].map(n => {
+                                const pitch = getPitchInfo(n.clef, n.step);
+                                const acc = n.accidental === 'sharp' ? '#' : n.accidental === 'flat' ? 'b' : '';
+                                const dur = convertInternalDuration(n.duration);
+                                return `${pitch.name}${acc}${pitch.octave}/${dur}`;
+                            });
+                            if (noteTokens.length === 1) {
+                                tokens.push(noteTokens[0]);
+                            } else {
+                                tokens.push(`[${noteTokens.join(' ')}]`);
+                            }
+                        } else {
+                            tokens.push('_');
+                        }
+                    }
+                    while (tokens.length > 0 && tokens[tokens.length - 1] === '_') {
+                        tokens.pop();
+                    }
+                    measureTexts.push(tokens.join(' '));
+                }
+                return measureTexts.filter(t => t.length > 0).join(' | ');
+            };
+
+            const tokenizeMeasure = (str) => {
+                const tokens = [];
+                let i = 0;
+                while (i < str.length) {
+                    if (str[i] === '[' || str[i] === '(') {
+                        const open = str[i];
+                        const close = open === '[' ? ']' : ')';
+                        let depth = 1;
+                        let j = i + 1;
+                        while (j < str.length && depth > 0) {
+                            if (str[j] === open) depth++;
+                            if (str[j] === close) depth--;
+                            j++;
+                        }
+                        while (j < str.length && str[j] !== ' ' && str[j] !== '\t') {
+                            j++;
+                        }
+                        tokens.push(str.slice(i, j));
+                        i = j;
+                    } else if (str[i] === ' ' || str[i] === '\t') {
+                        i++;
+                    } else {
+                        let j = i;
+                        while (j < str.length && str[j] !== ' ' && str[j] !== '\t') {
+                            j++;
+                        }
+                        tokens.push(str.slice(i, j));
+                        i = j;
+                    }
+                }
+                return tokens;
+            };
+
+            const parseTextToNotes = (text, clef, measures, defaultDuration) => {
+                const warnings = [];
+                const result = [];
+                const measureStrings = text.split('|').map(s => s.trim());
+                const subdivisions = getSubdivisions();
+
+                for (let i = 0; i < measures.length; i++) {
+                    const mIdx = measures[i];
+                    const measureText = measureStrings[i] || '';
+                    if (!measureText.trim()) continue;
+
+                    const tokens = tokenizeMeasure(measureText);
+                    let currentBeat = 0;
+
+                    for (const token of tokens) {
+                        if (currentBeat >= subdivisions) {
+                            warnings.push(`Measure ${mIdx + 1} has too many notes — at most ${subdivisions} positions are supported. Please remove some notes and apply again.`);
+                            break;
+                        }
+
+                        if (token === '_' || token === 'r' || token === '-') {
+                            currentBeat += 1;
+                            continue;
+                        }
+
+                        if (token.startsWith('[') || token.startsWith('(')) {
+                            const closeChar = token.startsWith('[') ? ']' : ')';
+                            const closeBracketIdx = token.indexOf(closeChar);
+                            if (closeBracketIdx === -1) {
+                                warnings.push(`Measure ${mIdx + 1} contains an unclosed chord starting at position ${currentBeat + 1}: \`${token}\`. Every chord must be closed with ${closeChar}.`);
+                                currentBeat += 1;
+                                continue;
+                            }
+                            const inner = token.slice(1, closeBracketIdx);
+                            const suffix = token.slice(closeBracketIdx + 1);
+                            let chordDefaultDuration = defaultDuration;
+                            if (suffix) {
+                                const durMatch = suffix.match(/^\/(\d+)$/);
+                                if (durMatch) {
+                                    chordDefaultDuration = convertUserDuration(parseInt(durMatch[1])) || defaultDuration;
+                                }
+                            }
+                            const chordTokens = tokenizeMeasure(inner);
+                            for (const ct of chordTokens) {
+                                const parsed = parseSingleNote(ct, chordDefaultDuration);
+                                if (parsed.error) { warnings.push(`Measure ${mIdx + 1}, position ${currentBeat + 1}: ${parsed.error}`); continue; }
+                                const step = getStepFromPitch(clef, parsed.name, parsed.octave);
+                                if (step === null) {
+                                    warnings.push(`Measure ${mIdx + 1}, position ${currentBeat + 1}: \`${parsed.name}${parsed.octave}\` is outside the ${clef} range. Please remove it and apply again.`);
+                                    continue;
+                                }
+                                result.push(makeNote(mIdx, currentBeat, step, parsed.duration, clef, parsed.accidental));
+                            }
+                            currentBeat += 1;
+                            continue;
+                        }
+
+                        const parsed = parseSingleNote(token, defaultDuration);
+                        if (parsed.error) {
+                            warnings.push(`Measure ${mIdx + 1}, position ${currentBeat + 1}: ${parsed.error}`);
+                            currentBeat += 1;
+                            continue;
+                        }
+                        const step = getStepFromPitch(clef, parsed.name, parsed.octave);
+                        if (step === null) {
+                            warnings.push(`Measure ${mIdx + 1}, position ${currentBeat + 1}: \`${parsed.name}${parsed.octave}\` is outside the ${clef} range. Please remove it and apply again.`);
+                            currentBeat += 1;
+                            continue;
+                        }
+                        result.push(makeNote(mIdx, currentBeat, step, parsed.duration, clef, parsed.accidental));
+                        currentBeat += 1;
+                    }
+                }
+                return { notes: result, warnings };
+            };
+
+            const parseSingleNote = (token, defaultDuration) => {
+                const match = token.match(/^([A-G])([#b])?(\d+)(?:\/(\d+))?$/);
+                if (!match) {
+                    return { error: `Cannot parse "${token}" — expected a note like C4, C#4/4, or a rest (_, r, -)` };
+                }
+                const name = match[1];
+                const acc = match[2] || 'none';
+                const octave = parseInt(match[3]);
+                const durDenominator = match[4] ? parseInt(match[4]) : null;
+                if (durDenominator && ![1, 2, 4, 8].includes(durDenominator)) {
+                    return { error: `\`${token}\` uses unsupported duration /${durDenominator}. Supported durations: /1 (whole), /2 (half), /4 (quarter), /8 (eighth).` };
+                }
+                const duration = convertUserDuration(durDenominator) || defaultDuration;
+                const accidental = acc === '#' ? 'sharp' : acc === 'b' ? 'flat' : 'none';
+                return { name, octave, duration, accidental };
+            };
+
+            const makeNote = (measureIndex, beat, step, duration, clef, accidental) => ({
+                id: 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                measureIndex, beat, step, duration, clef, accidental
+            });
+
+            // --- End text note input helpers ---
 
             const loadDemoSong = (songKey) => {
                 const song = DEMO_SONGS[songKey];
@@ -1440,6 +1731,34 @@
                                     <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear All Notes
                                 </button>
                             </div>
+
+                            {/* Text Input Mode */}
+                            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                                <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                    <i data-lucide="keyboard" class="w-3.5 h-3.5 text-indigo-500"></i>
+                                    Type Notes
+                                </h3>
+                                <label class="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={showTextInput}
+                                        onChange={(e) => setShowTextInput(e.target.checked)}
+                                        class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
+                                    />
+                                    <span>Show text input fields</span>
+                                </label>
+                                {showTextInput && (
+                                    <button
+                                        onClick={() => setIsSyntaxHelpOpen(true)}
+                                        class="w-full flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 rounded-lg text-xs transition"
+                                    >
+                                        <i data-lucide="help-circle" class="w-3.5 h-3.5"></i> Syntax Guide
+                                    </button>
+                                )}
+                                <p class="text-[9px] text-slate-400 leading-relaxed">
+                                    Type notes into text fields below each row, then press Enter or click ✓ to apply. All durations default to the selected note length.
+                                </p>
+                            </div>
                         </aside>
 
                         {/* Interactive Sheet Music Area */}
@@ -1474,18 +1793,66 @@
                                         const m2 = systemIdx * 2 + 1;
 
                                         return (
-                                            /* Removing grid gaps here to allow continuous visual layout of staves */
-                                            <div key={systemIdx} class="system-scroll-container pb-4 md:pb-0 print-system-row print:border-none flex flex-row w-full justify-stretch items-stretch gap-0">
+                                            <div key={systemIdx} class="break-inside-avoid">
+                                                <div class="system-scroll-container pb-4 md:pb-0 print-system-row print:border-none flex flex-row w-full justify-stretch items-stretch gap-0">
 
-                                                {/* Measure 1 (Always contains the Clef drawing inside) */}
-                                                <div class="staff-container bg-transparent w-1/2 flex-grow flex-shrink-0 relative min-w-[340px] md:min-w-0">
-                                                    {renderMeasureSVG(m1)}
+                                                    {/* Measure 1 (Always contains the Clef drawing inside) */}
+                                                    <div class="staff-container bg-transparent w-1/2 flex-grow flex-shrink-0 relative min-w-[340px] md:min-w-0">
+                                                        {renderMeasureSVG(m1)}
+                                                    </div>
+
+                                                    {/* Measure 2 */}
+                                                    {m2 < measuresCount && (
+                                                        <div class="staff-container bg-transparent w-1/2 flex-grow flex-shrink-0 relative min-w-[340px] md:min-w-0">
+                                                            {renderMeasureSVG(m2)}
+                                                        </div>
+                                                    )}
                                                 </div>
 
-                                                {/* Measure 2 */}
-                                                {m2 < measuresCount && (
-                                                    <div class="staff-container bg-transparent w-1/2 flex-grow flex-shrink-0 relative min-w-[340px] md:min-w-0">
-                                                        {renderMeasureSVG(m2)}
+                                                {showTextInput && (
+                                                    <div class="space-y-1.5 mt-1 mb-2 no-print">
+                                                        {selectedStaffView !== 'bass' && (
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="text-[10px] font-bold text-indigo-600 w-12 shrink-0">Treble</span>
+                                                                <textarea
+                                                                    value={textDrafts[`${systemIdx}_treble`] || ''}
+                                                                    onChange={(e) => handleTextChange(systemIdx, 'treble', e.target.value)}
+                                                                    onFocus={() => handleTextFocus(`${systemIdx}_treble`)}
+                                                                    onBlur={() => handleTextBlur(systemIdx, 'treble')}
+                                                                    onKeyDown={(e) => handleTextKeyDown(systemIdx, 'treble', e)}
+                                                                    placeholder="C4 D4 E4 F4 | G4 A4 B4 C5"
+                                                                    class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                                                />
+                                                                <button
+                                                                    onClick={() => handleApply(systemIdx, 'treble')}
+                                                                    class="shrink-0 w-6 h-6 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition"
+                                                                    title="Apply"
+                                                                >
+                                                                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        {selectedStaffView !== 'treble' && (
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="text-[10px] font-bold text-indigo-600 w-12 shrink-0">Bass</span>
+                                                                <textarea
+                                                                    value={textDrafts[`${systemIdx}_bass`] || ''}
+                                                                    onChange={(e) => handleTextChange(systemIdx, 'bass', e.target.value)}
+                                                                    onFocus={() => handleTextFocus(`${systemIdx}_bass`)}
+                                                                    onBlur={() => handleTextBlur(systemIdx, 'bass')}
+                                                                    onKeyDown={(e) => handleTextKeyDown(systemIdx, 'bass', e)}
+                                                                    placeholder="C3 E3 G3 | D3 F3 A3"
+                                                                    class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                                                />
+                                                                <button
+                                                                    onClick={() => handleApply(systemIdx, 'bass')}
+                                                                    class="shrink-0 w-6 h-6 flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition"
+                                                                    title="Apply"
+                                                                >
+                                                                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -1736,11 +2103,105 @@
                         </main>
                     </div>
 
+                    {/* Syntax Guide Modal */}
+                    {isSyntaxHelpOpen && (
+                        <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+                            <div class="bg-white p-5 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 space-y-4 animate-modal">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <h3 class="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                                        <i data-lucide="help-circle" class="w-4 h-4 text-indigo-600"></i>
+                                        Note Syntax Guide
+                                    </h3>
+                                    <button
+                                        onClick={() => setIsSyntaxHelpOpen(false)}
+                                        class="text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-1 rounded-full transition"
+                                    >
+                                        <i data-lucide="x" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                                <div class="space-y-3 text-xs">
+                                    <table class="w-full text-left">
+                                        <thead>
+                                            <tr class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100">
+                                                <th class="pb-1 pr-2">Syntax</th>
+                                                <th class="pb-1 pr-2">Meaning</th>
+                                                <th class="pb-1">Example</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="font-medium text-slate-700">
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">C4</td><td class="py-1 pr-2">C, octave 4</td><td class="py-1">Middle C</td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">C#4</td><td class="py-1 pr-2">C sharp</td><td class="py-1">Black key</td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">Bb4</td><td class="py-1 pr-2">B flat</td><td class="py-1">Black key</td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">C4/4</td><td class="py-1 pr-2">Quarter note</td><td class="py-1">/1=whole, /2=half, /4=quarter, /8=eighth</td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">[C4 E4 G4]</td><td class="py-1 pr-2">Chord (bracket)</td><td class="py-1">All notes at same beat</td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">(C4 E4 G4)</td><td class="py-1 pr-2">Chord (parens)</td><td class="py-1">Alternative to brackets</td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">_</td><td class="py-1 pr-2">Rest</td><td class="py-1">Also <span class="font-mono">r</span>, <span class="font-mono">-</span></td></tr>
+                                            <tr><td class="py-1 pr-2 font-mono font-bold text-indigo-600">|</td><td class="py-1 pr-2">Bar line</td><td class="py-1">Separates measures</td></tr>
+                                        </tbody>
+                                    </table>
+                                    <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-slate-500 leading-relaxed">
+                                        <p class="font-bold text-slate-700 mb-1">Tips</p>
+                                        <ul class="list-disc list-inside space-y-0.5">
+                                            <li>Each space-separated token is one eighth-note subdivision.</li>
+                                            <li>No duration suffix? Uses the selected <span class="font-bold">Insert Note Length</span>.</li>
+                                            <li>Errors prevent the score from updating — fix them and apply again.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <div class="flex justify-end pt-2 border-t border-slate-100">
+                                    <button
+                                        onClick={() => setIsSyntaxHelpOpen(false)}
+                                        class="px-4 py-2 bg-slate-900 hover:bg-black text-white font-extrabold rounded-xl text-xs transition"
+                                    >
+                                        Got it
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Parser Warnings Modal */}
+                    {parserWarnings.length > 0 && (
+                        <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+                            <div class="bg-white p-5 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 space-y-4 animate-modal">
+                                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <h3 class="text-sm font-extrabold text-amber-800 flex items-center gap-1.5">
+                                        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600"></i>
+                                        Notation Errors
+                                    </h3>
+                                    <button
+                                        onClick={() => setParserWarnings([])}
+                                        class="text-slate-400 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 p-1 rounded-full transition"
+                                    >
+                                        <i data-lucide="x" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                                <div class="space-y-2 max-h-60 overflow-y-auto">
+                                    <p class="text-xs text-slate-500 font-medium">The score was <span class="font-bold text-amber-700">not</span> updated. Please fix the following and apply again:</p>
+                                    {parserWarnings.map((w, i) => (
+                                        <div key={i} class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-medium">
+                                            <i data-lucide="alert-circle" class="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-500"></i>
+                                            <span>{w}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div class="flex justify-end pt-2 border-t border-slate-100">
+                                    <button
+                                        onClick={() => setParserWarnings([])}
+                                        class="px-4 py-2 bg-slate-900 hover:bg-black text-white font-extrabold rounded-xl text-xs transition"
+                                    >
+                                        Got it
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Toast custom notification alert replacements */}
                     {toast && (
-                        <div class={`fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold transition-all transform animate-modal ${toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        <div class={`fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold transition-all transform animate-modal ${toast.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-800' : toast.type === 'warning' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
                             }`}>
-                            <i data-lucide={toast.type === 'error' ? 'alert-circle' : 'check-circle-2'} class="w-4 h-4"></i>
+                            <i data-lucide={toast.type === 'error' ? 'alert-circle' : toast.type === 'warning' ? 'alert-triangle' : 'check-circle-2'} class="w-4 h-4"></i>
                             {toast.message}
                         </div>
                     )}
