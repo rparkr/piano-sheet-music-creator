@@ -459,7 +459,7 @@
             const touchTimerRef = useRef(null);
             const isLongPressTriggered = useRef(false);
             const fileInputRef = useRef(null);
-            const [showTextInput, setShowTextInput] = useState(false);
+            const [showTextInput, setShowTextInput] = useState(true);
             const [textDrafts, setTextDrafts] = useState({});
             const [isSyntaxHelpOpen, setIsSyntaxHelpOpen] = useState(false);
             const [parserWarnings, setParserWarnings] = useState([]);
@@ -1171,11 +1171,11 @@
             };
 
             const parseSingleNote = (token, defaultDuration) => {
-                const match = token.match(/^([A-G])([#b])?(\d+)(?:\/(\d+))?$/);
+                const match = token.match(/^([A-Ga-g])([#b])?(\d+)(?:\/(\d+))?$/i);
                 if (!match) {
                     return { error: `Cannot parse "${token}" — expected a note like C4, C#4/4, or a rest (_, r, -)` };
                 }
-                const name = match[1];
+                const name = match[1].toUpperCase();
                 const acc = match[2] || 'none';
                 const octave = parseInt(match[3]);
                 const durDenominator = match[4] ? parseInt(match[4]) : null;
